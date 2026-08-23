@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# local libSQL databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+coverage/

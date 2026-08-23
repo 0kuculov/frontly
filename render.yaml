@@ -1,0 +1,70 @@
+# Render Blueprint for the Frontly API.
+#
+# Apply with: Render dashboard -> New -> Blueprint -> point at this repo.
+# The dashboard (apps/web) deploys to Vercel separately; see README.
+#
+# Region is Frankfurt on purpose. Phase 3 has a 1.5s end-of-speech-to-response
+# budget shared between Twilio, Azure Speech and Anthropic, and routing Balkan
+# calls through a US region spends a third of it on the round trip alone.
+
+services:
+  - type: web
+    name: frontly-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    branch: main
+    healthCheckPath: /health
+
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+
+    # Migrations run before the server binds. `drizzle-kit` records what has
+    # already been applied, so a restart is a no-op. Runs the compiled script
+    # rather than tsx: no dev dependency is needed at runtime.
+    startCommand: pnpm db:migrate:dist && pnpm start
+
+    envVars:
+      - key: NODE_VERSION
+        value: 24.18.0
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: LOG_LEVEL
+        value: info
+
+      # --- set these in the Render dashboard (sync: false = not in git) ---
+      # Turso. A file: URL is rejected at boot in production.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_AUTH_TOKEN
+        sync: false
+
+      # Public URL of this service. Twilio webhook URLs are built from it,
+      # and boot fails without it in production.
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+      # Vercel dashboard origin(s), comma-separated, for CORS.
+      - key: APP_ORIGIN
+        sync: false
+
+      # --- Phase 2+ : add as each phase lands ---
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: AZURE_SPEECH_KEY
+        sync: false
+      - key: AZURE_SPEECH_REGION
+        value: westeurope
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DEMO_RESET_TOKEN
+        generateValue: true

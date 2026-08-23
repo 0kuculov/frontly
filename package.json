@@ -1,0 +1,31 @@
+{
+  "name": "frontly",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI receptionist for small service businesses in North Macedonia and the Balkans",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @frontly/api build",
+    "build:all": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @frontly/api dev",
+    "dev:web": "pnpm --filter @frontly/web dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @frontly/core db:generate",
+    "db:migrate": "pnpm --filter @frontly/core db:migrate",
+    "db:migrate:dist": "pnpm --filter @frontly/core db:migrate:dist",
+    "start": "node apps/api/dist/server.js",
+    "db:seed": "pnpm --filter @frontly/core db:seed",
+    "db:reset": "pnpm --filter @frontly/core db:reset",
+    "db:studio": "pnpm --filter @frontly/core db:studio",
+    "clean": "pnpm -r exec rm -rf dist .next .turbo"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

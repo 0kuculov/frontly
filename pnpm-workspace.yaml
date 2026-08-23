@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: set this to true or false
+  sharp: set this to true or false
+
+# pnpm 11 blocks postinstall scripts by default. These three genuinely need
+# theirs: esbuild and sharp download platform binaries at install time.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

@@ -5,9 +5,12 @@
   "description": "AI receptionist for small service businesses in North Macedonia and the Balkans",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24 <25"
   },
   "packageManager": "pnpm@11.22.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp"]
+  },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @frontly/api build",
     "build:all": "pnpm -r build",

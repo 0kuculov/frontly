@@ -2,12 +2,32 @@ packages:
   - "apps/*"
   - "packages/*"
 
-allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
+# ---------------------------------------------------------------------------
+# Postinstall-script allowlist.
+#
+# pnpm blocks build scripts by default and FAILS the install rather than
+# warning. esbuild and sharp genuinely need theirs: both fetch a platform
+# binary at install time, and without it drizzle-kit, tsx and vitest are all
+# broken. This is an allowlist of exactly those two, not a disable of the
+# policy.
+#
+# The same allowlist is spelled THREE ways because the setting was renamed
+# twice and Render's build image does not run the same pnpm major we do:
+#
+#   pnpm <=10  package.json -> "pnpm": { "onlyBuiltDependencies": [...] }
+#   pnpm ~10.x pnpm-workspace.yaml -> onlyBuiltDependencies: [...]
+#   pnpm >=11  pnpm-workspace.yaml -> allowBuilds: { pkg: true }
+#
+# `allowBuilds` wins on pnpm 11. pnpm writes this block itself with the
+# placeholder value "set this to true or false" — leaving that placeholder in
+# place is NOT approval and the install keeps failing, which is what bit the
+# first two Render deploys. Keep all three lists in sync.
+# ---------------------------------------------------------------------------
 
-# pnpm 11 blocks postinstall scripts by default. These three genuinely need
-# theirs: esbuild and sharp download platform binaries at install time.
+allowBuilds:
+  esbuild: true
+  sharp: true
+
 onlyBuiltDependencies:
   - esbuild
   - sharp

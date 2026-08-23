@@ -24,6 +24,10 @@ services:
     startCommand: pnpm db:migrate:dist && pnpm start
 
     envVars:
+      # Must agree with engines.node (">=24 <25") in the root package.json.
+      # Render resolves engines.node and it wins over this value, so a
+      # mismatch here is silently ignored rather than honoured — an open
+      # ">=22" is what let a build pick up Node 26.
       - key: NODE_VERSION
         value: 24.18.0
       - key: NODE_ENV

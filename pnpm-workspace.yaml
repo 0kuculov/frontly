@@ -11,17 +11,20 @@ packages:
 # broken. This is an allowlist of exactly those two, not a disable of the
 # policy.
 #
-# The same allowlist is spelled THREE ways because the setting was renamed
-# twice and Render's build image does not run the same pnpm major we do:
+# The setting has been renamed across pnpm majors:
 #
 #   pnpm <=10  package.json -> "pnpm": { "onlyBuiltDependencies": [...] }
 #   pnpm ~10.x pnpm-workspace.yaml -> onlyBuiltDependencies: [...]
 #   pnpm >=11  pnpm-workspace.yaml -> allowBuilds: { pkg: true }
 #
-# `allowBuilds` wins on pnpm 11. pnpm writes this block itself with the
-# placeholder value "set this to true or false" — leaving that placeholder in
-# place is NOT approval and the install keeps failing, which is what bit the
-# first two Render deploys. Keep all three lists in sync.
+# Only the two below are needed. Render's build log confirms pnpm 11.22.0 runs
+# there too: the packageManager field makes any older pnpm hand off to it. The
+# package.json form was tried and removed - pnpm 11 ignores it and warns on
+# every single command, which is noise that hides real warnings in a build log.
+#
+# `allowBuilds` is what actually decides on pnpm 11, and pnpm writes this block
+# itself with the placeholder "set this to true or false". That placeholder is
+# NOT approval; leaving it in place is what failed the first two deploys.
 # ---------------------------------------------------------------------------
 
 allowBuilds:

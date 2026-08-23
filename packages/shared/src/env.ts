@@ -84,11 +84,20 @@ const serverEnvShape = z
       });
     }
 
-    if (env.NODE_ENV === 'production' && !env.PUBLIC_BASE_URL) {
+    /**
+     * PUBLIC_BASE_URL only means anything once an inbound channel has to hand
+     * out callback URLs, which is Twilio in Phase 3. Requiring it at boot
+     * blocked the Phase 1 deploy over a Phase 3 concern — so it is demanded
+     * when Twilio is actually configured, and by requireEnv at the point the
+     * voice adapter builds a webhook URL.
+     */
+    if (env.NODE_ENV === 'production' && env.TWILIO_ACCOUNT_SID && !env.PUBLIC_BASE_URL) {
       ctx.addIssue({
         code: 'custom',
         path: ['PUBLIC_BASE_URL'],
-        message: 'PUBLIC_BASE_URL is required in production — Twilio webhook URLs are built from it',
+        message:
+          'TWILIO_ACCOUNT_SID is set but PUBLIC_BASE_URL is not — Twilio webhook URLs are ' +
+          'built from it, so inbound calls would be pointed at nowhere.',
       });
     }
   });

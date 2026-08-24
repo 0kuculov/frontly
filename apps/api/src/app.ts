@@ -49,7 +49,7 @@ export async function buildApp(env: ServerEnv): Promise<BuildAppResult> {
   app.get('/', async () => ({
     service: 'frontly-api',
     version: API_VERSION,
-    docs: 'https://github.com/frontly/frontly',
+    docs: 'https://github.com/0kuculov/frontly',
   }));
 
   app.setNotFoundHandler((request, reply) => {

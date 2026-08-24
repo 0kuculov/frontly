@@ -20,6 +20,14 @@ import {
   type VoiceProfile,
 } from '@frontly/shared';
 import { PlaybackQueue, type PlaybackSink } from './audio.js';
+import {
+  CALLBACK_OFFER,
+  DID_NOT_CATCH,
+  FILLERS,
+  STILL_THERE,
+  TRANSFER_UNAVAILABLE,
+} from './phrases.js';
+import { phraseRequest, type SpeechCache } from './speech-cache.js';
 import type { ISpeechProvider, ISpeechToText, ITextToSpeech, TranscriptionResult } from './types.js';
 
 /**
@@ -72,41 +80,28 @@ export interface CallSessionOptions {
   minConfidence?: number;
   /** Frame pacing. 20 ms in production; tests shorten it to run quickly. */
   frameIntervalMs?: number;
+  /**
+   * Pre-synthesized audio for the lines that never change.
+   *
+   * Optional: without it everything still works, just with an Azure round trip
+   * in front of the greeting and no fillers on slow turns.
+   */
+  cache?: SpeechCache | undefined;
+  /** Play a filler once a turn has been silent this long. */
+  fillerAfterMs?: number;
 }
 
 const DEFAULT_SILENCE_MS = 6000;
+/**
+ * How long the line may stay quiet mid-turn before a filler plays.
+ *
+ * Below roughly this, a pause reads as ordinary conversational rhythm and a
+ * filler would talk over the answer arriving. Above it, the caller starts
+ * wondering whether the call dropped.
+ */
+const DEFAULT_FILLER_AFTER_MS = 800;
 const DEFAULT_MAX_SILENCE_PROMPTS = 1;
 const DEFAULT_MIN_CONFIDENCE = 0.4;
-
-/** Said when STT is unsure or Azure failed. Never silence, never garbage. */
-const DID_NOT_CATCH: Record<Language, string> = {
-  mk: 'Извинете, не ве слушнав добро. Може ли да повторите, или да ве поврзам со колега?',
-  sq: 'Më falni, nuk ju dëgjova mirë. A mund ta përsërisni, apo t’ju lidh me një koleg?',
-  en: 'Sorry, I did not catch that. Could you repeat it, or shall I put you through to a colleague?',
-};
-
-const STILL_THERE: Record<Language, string> = {
-  mk: 'Сè уште сте тука?',
-  sq: 'Jeni ende aty?',
-  en: 'Are you still there?',
-};
-
-/**
- * Said when the agent wanted a human and could not reach one. It promises a
- * call back rather than claiming a transfer that did not happen — an agent
- * caught lying about this on stage is worse than one that admits a limit.
- */
-const TRANSFER_UNAVAILABLE: Record<Language, string> = {
-  mk: 'Во моментов не можам да ве префрлам. Ќе замолам колега да ви се јави на овој број. Пријатен ден.',
-  sq: 'Për momentin nuk mund t’ju transferoj. Do të kërkoj një koleg t’ju telefonojë në këtë numër. Ditë të mbarë.',
-  en: 'I cannot put you through right now. I will ask a colleague to call you back on this number. Have a good day.',
-};
-
-const CALLBACK_OFFER: Record<Language, string> = {
-  mk: 'Изгледа дека врската не е добра. Ќе замолам колега да ви се јави. Пријатен ден.',
-  sq: 'Duket se lidhja nuk është e mirë. Do të kërkoj një koleg t’ju telefonojë. Ditë të mbarë.',
-  en: 'The line seems poor. I will ask a colleague to call you back. Have a good day.',
-};
 
 export class CallSession {
   private readonly startedAt = Date.now();
@@ -128,6 +123,12 @@ export class CallSession {
   private lowConfidenceStreak = 0;
   /** Synthesis time for the most recent sentence, for the latency log. */
   private lastSynthesisMs = 0;
+  /** Synthesis time for the FIRST sentence of the current turn. */
+  private turnFirstTtsMs: number | undefined;
+  /** When audio first existed this turn — what the caller's silence ends at. */
+  private turnFirstAudioAt: number | undefined;
+  /** Rotates the filler variants so slow turns do not all sound identical. */
+  private lastFillerIndex = -1;
 
   constructor(private readonly options: CallSessionOptions) {
     this.playback = new PlaybackQueue(options.sink, options.frameIntervalMs ?? 20);
@@ -150,14 +151,43 @@ export class CallSession {
       },
     });
 
-    this.conversationId = await this.createConversationRow();
+    const greeting = renderGreeting(this.options.business);
+    const cached = this.options.cache?.get(this.greetingRequest(greeting));
 
-    // Greet only once the recognizer is live, so the caller answering the
-    // greeting immediately is not talking into a recognizer that is not
-    // listening yet.
-    await this.stt.ready;
-    await this.speak(renderGreeting(this.options.business), { greeting: true });
+    if (cached) {
+      /**
+       * Nothing between the caller connecting and hearing a voice.
+       *
+       * The greeting is fixed text, so with it already synthesized the only
+       * remaining work is queueing bytes. The database insert and the Azure
+       * recognizer handshake both used to sit in front of this and both now
+       * happen while the caller is being greeted.
+       *
+       * Not waiting for `stt.ready` is safe specifically because the recognizer
+       * adapter buffers audio written before it is live — without that buffer
+       * this would silently eat the caller's opening words.
+       */
+      this.playback.enqueue(cached);
+      const rowWritten = this.createConversationRow().then((id) => {
+        this.conversationId = id;
+      });
+      await this.playback.whenDrained();
+      await rowWritten;
+    } else {
+      // Cold cache. Nothing to play early, so keep the careful order.
+      this.conversationId = await this.createConversationRow();
+      await this.stt.ready;
+      await this.speak(greeting, { greeting: true });
+    }
+
     this.armSilenceTimer();
+  }
+
+  /** The greeting carries the configured pause between sentence and question. */
+  private greetingRequest(text: string) {
+    return phraseRequest(text, this.language, this.voiceProfile(), {
+      breakAfterFirstSentence: true,
+    });
   }
 
   /** Inbound media frame from the carrier. */
@@ -277,6 +307,34 @@ export class CallSession {
     this.busy = true;
 
     const spokenSentences: string[] = [];
+    const turnStartedAt = Date.now();
+    this.turnFirstTtsMs = undefined;
+    this.turnFirstAudioAt = undefined;
+    /** The first sentence's synthesis, so the log reports real audio timing. */
+    let firstSpeak: Promise<void> | undefined;
+
+    /**
+     * Cover the gap, do not extend it.
+     *
+     * If nothing has been queued by the time this fires, the line is silent
+     * and the caller is starting to wonder. A cached acknowledgement buys the
+     * remaining generation time without pretending to answer. Cancelled the
+     * moment a real sentence arrives, and skipped entirely if the cache is
+     * cold — synthesizing a filler would cost exactly what it is meant to hide.
+     */
+    const filler = setTimeout(() => {
+      if (this.ended || spokenSentences.length > 0 || this.playback.isPlaying) return;
+      const chosen = this.nextFiller();
+      if (!chosen) return;
+      this.options.logger.info(
+        { callRef: this.options.callRef, text: chosen.text },
+        'filler played',
+      );
+      // The filler IS the first thing the caller hears this turn, so it is
+      // what ends their silence — the measurement has to agree with the ear.
+      this.turnFirstAudioAt ??= Date.now();
+      this.playback.enqueue(chosen.audio);
+    }, this.options.fillerAfterMs ?? DEFAULT_FILLER_AFTER_MS);
 
     try {
       const result = await handleTurn(this.conversationId ?? this.options.callRef, text, {
@@ -300,7 +358,13 @@ export class CallSession {
         // is still writing sentence two. This is the whole latency strategy.
         onSentence: (sentence) => {
           spokenSentences.push(sentence);
-          void this.speak(sentence, { queueOnly: true });
+          clearTimeout(filler);
+          // Deliberately not awaited: the point of streaming is that sentence
+          // two generates while sentence one synthesizes. The first one is kept
+          // so the latency log can wait for it, and only for it.
+          const synthesis = this.speak(sentence, { queueOnly: true });
+          firstSpeak ??= synthesis;
+          void synthesis;
         },
       });
 
@@ -318,18 +382,38 @@ export class CallSession {
         })),
       });
 
+      /**
+       * Stages, not a single number.
+       *
+       * `toFirstTokenMs` on a tool turn spans the first model call, the tool,
+       * and the second call's first token — so on its own it cannot say whether
+       * a slow turn was the model or the database. `stages` breaks it apart,
+       * which is the difference between switching models and adding an index.
+       */
+      // Without this the log reads the clock before the first synthesis has
+      // finished setting it, and every streamed turn reports "undefined".
+      await firstSpeak;
+
+      const [firstCall] = result.timings.calls;
       this.options.logger.info(
         {
           callRef: this.options.callRef,
-          // The two numbers that matter, kept apart on purpose: the first is
-          // what the caller perceives, the second is what a benchmark shows.
-          // Three separate numbers because they are three separate problems:
-          // model latency, sentence length, and everything else.
+          // What the caller actually perceives: silence until audio exists.
+          toFirstAudioMs: this.turnFirstAudioAt
+            ? this.turnFirstAudioAt - turnStartedAt
+            : undefined,
           toFirstTokenMs: result.timings.toFirstTokenMs,
-          toFirstAudioMs: result.timings.toFirstSentenceMs,
-          ttsMs: this.lastSynthesisMs,
+          toFirstSentenceMs: result.timings.toFirstSentenceMs,
           totalMs: result.timings.totalMs,
-          toolMs: result.timings.toolMs,
+          stages: {
+            /** Pure model latency, before any tool has run. */
+            modelFirstTokenMs: firstCall?.toFirstTokenMs,
+            firstCallMs: firstCall?.totalMs,
+            toolMs: result.timings.toolMs,
+            ttsFirstMs: this.turnFirstTtsMs,
+            calls: result.timings.calls,
+            tools: result.timings.tools,
+          },
           modelCalls: result.timings.modelCalls,
           tools: result.toolCalls.map((c) => c.name),
         },
@@ -356,6 +440,7 @@ export class CallSession {
       );
       await this.speak(DID_NOT_CATCH[this.language]);
     } finally {
+      clearTimeout(filler);
       this.busy = false;
 
       // Anything the caller said while that turn was running is handled now,
@@ -369,6 +454,28 @@ export class CallSession {
 
       this.armSilenceTimer();
     }
+  }
+
+  /**
+   * The next filler, rotating so the caller never hears the same two words
+   * twice running. Returns undefined when nothing is cached, which is the
+   * signal to stay quiet rather than synthesize one.
+   */
+  private nextFiller(): { audio: Buffer; text: string } | undefined {
+    const cache = this.options.cache;
+    if (!cache) return undefined;
+
+    const variants = FILLERS[this.language];
+    for (let step = 1; step <= variants.length; step++) {
+      const index = (this.lastFillerIndex + step) % variants.length;
+      const text = variants[index]!;
+      const audio = cache.get(phraseRequest(text, this.language, this.voiceProfile()));
+      if (audio) {
+        this.lastFillerIndex = index;
+        return { audio, text };
+      }
+    }
+    return undefined;
   }
 
   /** True while a turn is in flight — the simulation uses it to pace itself. */
@@ -424,18 +531,36 @@ export class CallSession {
   ): Promise<void> {
     if (this.ended || !text.trim()) return;
 
+    // The configured pause between greeting and question, so the caller does
+    // not talk over the question on every single call.
+    const request = phraseRequest(text, this.language, this.voiceProfile(), {
+      ...(options.greeting ? { breakAfterFirstSentence: true } : {}),
+    });
+
+    /**
+     * Fixed lines never touch Azure.
+     *
+     * The apologies, the reprompt and the callback offer are all pre-synthesized,
+     * and they are precisely the lines a caller hears when the call is already
+     * going badly. Making the recovery path the slowest one would be backwards.
+     */
+    const cached = this.options.cache?.get(request);
+    if (cached) {
+      this.lastSynthesisMs = 0;
+      this.turnFirstTtsMs ??= 0;
+      this.turnFirstAudioAt ??= Date.now();
+      this.playback.enqueue(cached);
+      if (!options.queueOnly) await this.playback.whenDrained();
+      return;
+    }
+
     const synthesisStartedAt = Date.now();
     try {
-      const audio = await this.tts.synthesize({
-        text,
-        language: this.language,
-        profile: this.voiceProfile(),
-        // The configured pause between greeting and question, so the caller
-        // does not talk over the question on every single call.
-        ...(options.greeting ? { breakAfterFirstSentence: true } : {}),
-      });
+      const audio = await this.tts.synthesize(request);
       this.lastSynthesisMs = Date.now() - synthesisStartedAt;
+      this.turnFirstTtsMs ??= this.lastSynthesisMs;
       if (this.ended) return;
+      this.turnFirstAudioAt ??= Date.now();
       this.playback.enqueue(audio);
       if (!options.queueOnly) await this.playback.whenDrained();
     } catch (error) {
@@ -458,6 +583,24 @@ export class CallSession {
   private armSilenceTimer(): void {
     this.clearSilenceTimer();
     if (this.ended) return;
+
+    /**
+     * The clock starts when the agent stops talking, not when it stops thinking.
+     *
+     * This used to be armed the moment the model returned — while the reply was
+     * still playing. Any answer that took longer than the silence window to
+     * speak would reprompt the caller over the top of its own sentence, and the
+     * second reprompt ended the call outright. Pre-synthesized phrases made it
+     * easy to hit, but the bug was always there: a caller listening is not a
+     * caller who has gone quiet.
+     */
+    if (this.playback.isPlaying) {
+      void this.playback.whenDrained().then(() => {
+        if (!this.ended && !this.busy) this.armSilenceTimer();
+      });
+      return;
+    }
+
     const wait = this.options.silenceMs ?? DEFAULT_SILENCE_MS;
     this.silenceTimer = setTimeout(() => void this.onSilence(), wait);
   }

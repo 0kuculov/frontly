@@ -28,6 +28,17 @@ export interface BusinessContext {
   staff: StaffMember[];
 }
 
+/**
+ * Every business this deployment serves.
+ *
+ * Used at boot to pre-synthesize each one's fixed phrases. Deliberately not
+ * paginated: a deployment with enough clinics for that to matter has bigger
+ * changes to make than this query.
+ */
+export async function listBusinesses(db: Database): Promise<Business[]> {
+  return db.select().from(businesses);
+}
+
 export async function getBusinessById(
   db: Database,
   businessId: string,

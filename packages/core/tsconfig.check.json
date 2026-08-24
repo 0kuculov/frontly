@@ -1,0 +1,17 @@
+{
+  // The build config deliberately compiles only src/ into dist/. That leaves
+  // tests and scripts unchecked, which is how two broken scripts reached a
+  // green `pnpm typecheck` — the failure only appeared when tsx ran them.
+  // This config checks everything and emits nothing.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

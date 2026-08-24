@@ -94,7 +94,15 @@ export interface TurnResult {
 export interface TurnTimings {
   /** Turn start to the first complete sentence being handed to the caller. */
   toFirstSentenceMs?: number;
-  /** Turn start to the model's first token of any kind. */
+  /**
+   * Turn start to the model's first token of any kind.
+   *
+   * On a turn that uses tools this is NOT pure model latency: the first model
+   * call often emits no text at all, so the clock runs through that call and
+   * the tool round trip before the second call speaks. Use `calls` to separate
+   * them — attributing this whole number to the model is how you end up
+   * switching models to fix a database query.
+   */
   toFirstTokenMs?: number;
   /** Total wall time for the turn, including every tool round trip. */
   totalMs: number;
@@ -102,6 +110,27 @@ export interface TurnTimings {
   toolMs: number;
   /** Number of model round trips this turn needed. */
   modelCalls: number;
+  /** One entry per model round trip, in order. */
+  calls: ModelCallTiming[];
+  /** One entry per tool invocation, in order. */
+  tools: ToolTiming[];
+}
+
+/** What a single model round trip cost, isolated from tools around it. */
+export interface ModelCallTiming {
+  /** 0-based round trip within this turn. */
+  index: number;
+  /** Start of this call to its own first text token, if it produced any. */
+  toFirstTokenMs?: number;
+  /** Wall time of this call alone. */
+  totalMs: number;
+  /** True when the call ended asking for tools rather than answering. */
+  endedInToolUse: boolean;
+}
+
+export interface ToolTiming {
+  name: string;
+  durationMs: number;
 }
 
 export interface ModelRequest {

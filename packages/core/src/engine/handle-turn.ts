@@ -5,7 +5,14 @@ import { buildSystemPrompt } from './prompt.js';
 import { protectedTermsFor, sanitizeForSpeech, type SanitizeOptions } from './sanitize.js';
 import { SentenceSplitter } from './sentences.js';
 import { buildTools, type BuildToolsOptions } from './tools.js';
-import type { ToolCallRecord, TurnContext, TurnResult, TurnTimings } from './types.js';
+import type {
+  ModelCallTiming,
+  ToolCallRecord,
+  ToolTiming,
+  TurnContext,
+  TurnResult,
+  TurnTimings,
+} from './types.js';
 
 /**
  * One turn of conversation, with no channel attached.
@@ -52,6 +59,16 @@ export async function handleTurn(
   let firstSentenceAt: number | undefined;
   let toolMs = 0;
   let modelCalls = 0;
+  /**
+   * Per-stage detail, so a slow turn can be blamed on the right thing.
+   *
+   * A turn that calls a tool spends time in three places — first model call,
+   * tool, second model call — and the single `toFirstTokenMs` number cannot
+   * tell them apart. Without this split, a turn slowed by a database query
+   * looks exactly like a turn slowed by the model.
+   */
+  const calls: ModelCallTiming[] = [];
+  const toolTimings: ToolTiming[] = [];
 
   const system = buildSystemPrompt({
     business: ctx.business,
@@ -97,10 +114,14 @@ export async function handleTurn(
     ctx.onSentence(clean);
   };
 
+  /** Set per model call so each round trip times its own first token. */
+  let callFirstTokenAt: number | undefined;
+
   const makeDeltaHandler = (splitter: SentenceSplitter) =>
     ctx.onSentence
       ? (delta: string): void => {
           firstTokenAt ??= Date.now();
+          callFirstTokenAt ??= Date.now();
           for (const sentence of splitter.push(delta)) emitSentence(sentence);
         }
       : undefined;
@@ -112,11 +133,23 @@ export async function handleTurn(
       const splitter = new SentenceSplitter();
 
       modelCalls++;
+      const callStartedAt = Date.now();
+      callFirstTokenAt = undefined;
+
       const response = await ctx.model.complete({
         system,
         messages,
         tools,
         onTextDelta: makeDeltaHandler(splitter),
+      });
+
+      calls.push({
+        index: iteration,
+        ...(callFirstTokenAt !== undefined
+          ? { toFirstTokenMs: callFirstTokenAt - callStartedAt }
+          : {}),
+        totalMs: Date.now() - callStartedAt,
+        endedInToolUse: response.stop_reason === 'tool_use',
       });
 
       // Anything after the last full stop is still speakable.
@@ -146,6 +179,7 @@ export async function handleTurn(
         const result = await executeTool(block.name, block.input, ctx);
         const durationMs = Date.now() - startedAt;
         toolMs += durationMs;
+        toolTimings.push({ name: block.name, durationMs });
 
         toolCalls.push({
           name: block.name,
@@ -224,6 +258,8 @@ export async function handleTurn(
       totalMs: Date.now() - turnStartedAt,
       toolMs,
       modelCalls,
+      calls,
+      tools: toolTimings,
     };
   }
 }

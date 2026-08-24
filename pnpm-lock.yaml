@@ -36,6 +36,9 @@ importers:
         specifier: ^1.51.0
         version: 1.51.0
     devDependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.120.0
+        version: 0.120.0(zod@4.4.3)
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.3

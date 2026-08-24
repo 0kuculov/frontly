@@ -10,6 +10,8 @@ import {
 import { DEFAULT_VOICE_CONFIG, type Language } from '@frontly/shared';
 import { AzureSpeechProvider } from '../src/voice/azure.js';
 import { CallSession } from '../src/voice/session.js';
+import { SpeechCache } from '../src/voice/speech-cache.js';
+import { warmBusiness } from '../src/voice/warm.js';
 import { FRAME_BYTES } from '../src/voice/types.js';
 
 /**
@@ -88,7 +90,20 @@ async function main(): Promise<void> {
   const t = await createTestDb();
   const context = (await getBusinessContext(t.db, DEMO_IDS.business))!;
 
+  /**
+   * Pre-synthesize the fixed lines, exactly as the server does at boot, so the
+   * greeting the simulated caller hears comes out of the cache rather than out
+   * of Azure. Warming through the recording provider on purpose: the fixed
+   * phrases reach the synthesizer too, so the Latin check should see them.
+   */
+  const useCache = process.env.SIM_CACHE !== '0';
+  const cache = new SpeechCache(provider);
+  const warmed = useCache
+    ? await warmBusiness(cache, context.business)
+    : { warmed: 0, failed: 0 };
+
   let outboundFrames = 0;
+  let firstFrameAt = 0;
   let lastCallerFrameAt = 0;
   let firstReplyFrameAt = 0;
   const latencies: number[] = [];
@@ -102,6 +117,7 @@ async function main(): Promise<void> {
     model: new AnthropicLanguageModel(),
     callRef: `CA_sim_${Date.now()}`,
     from: '+38970111222',
+    ...(useCache ? { cache } : {}),
     logger: {
       info: (payload, message) => {
         if (message === 'turn complete') {
@@ -111,6 +127,8 @@ async function main(): Promise<void> {
                 `turn ${String(payload.totalMs)}ms · tools ${JSON.stringify(payload.tools)}`,
             ),
           );
+        } else if (message === 'filler played') {
+          console.log(dim(`             ~ filler: ${String(payload.text)}`));
         } else if (message === 'barge-in' || message === 'language locked') {
           console.log(dim(`             · ${message} ${JSON.stringify(payload.language ?? '')}`));
         }
@@ -122,6 +140,7 @@ async function main(): Promise<void> {
     sink: {
       sendFrame: () => {
         outboundFrames++;
+        if (!firstFrameAt) firstFrameAt = Date.now();
         if (lastCallerFrameAt && !firstReplyFrameAt) {
           firstReplyFrameAt = Date.now();
           latencies.push(firstReplyFrameAt - lastCallerFrameAt);
@@ -134,7 +153,9 @@ async function main(): Promise<void> {
   console.log(bold(`\n  Симулиран повик — ${context.business.name}`));
   console.log(dim(`  Azure ${region} · ${new AnthropicLanguageModel().model}\n`));
 
+  const greetingRequestedAt = Date.now();
   await session.start();
+  const greetingLatency = firstFrameAt ? firstFrameAt - greetingRequestedAt : undefined;
   await waitForQuiet(() => outboundFrames);
 
   for (const text of CALLER_TURNS) {
@@ -145,10 +166,13 @@ async function main(): Promise<void> {
     lastCallerFrameAt = 0;
 
     // Feed it exactly as Telnyx would: 20 ms per frame, in real time.
+    let fed = 0;
     for (let offset = 0; offset < audio.length; offset += FRAME_BYTES) {
       session.onMedia(audio.subarray(offset, offset + FRAME_BYTES).toString('base64'));
+      fed++;
       await sleep(20);
     }
+    console.log(dim(`             (fed ${fed} frames)`));
     lastCallerFrameAt = Date.now();
 
     // Let the agent finish thinking, then finish speaking, before the next
@@ -176,6 +200,12 @@ async function main(): Promise<void> {
   for (const row of booked) {
     console.log(`    ${row.customerName} · ${row.startsAt.toISOString()} · ${row.status}`);
   }
+  console.log(bold('\n  Greeting'));
+  console.log(`  phrases pre-synthesized: ${warmed.warmed} (${warmed.failed} failed)`);
+  console.log(
+    `  connect -> first audio byte: ${greetingLatency === undefined ? 'n/a' : `${greetingLatency}ms`}`,
+  );
+
   const leaked = spokenToAzure.filter((s) => s.latin.length > 0);
   console.log(bold('\n  Latin script reaching Azure'));
   console.log(`  Macedonian utterances synthesized: ${spokenToAzure.length}`);
@@ -197,6 +227,7 @@ async function main(): Promise<void> {
     );
   }
 
+  cache.close();
   t.cleanup();
 }
 

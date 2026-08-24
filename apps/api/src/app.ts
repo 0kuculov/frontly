@@ -7,7 +7,9 @@ import type { ServerEnv } from '@frontly/shared';
 import { healthRoutes } from './routes/health.js';
 import { voiceRoutes } from './routes/voice.js';
 import { AzureSpeechProvider } from './voice/azure.js';
+import { SpeechCache } from './voice/speech-cache.js';
 import { TelnyxProvider } from './voice/telnyx.js';
+import { warmAllBusinesses } from './voice/warm.js';
 import type { ITelephonyProvider } from './voice/telephony.js';
 import type { ISpeechProvider } from './voice/types.js';
 
@@ -31,6 +33,8 @@ export interface BuildAppOptions {
   speechProvider?: ISpeechProvider;
   /** Injectable so the voice tests never place a real call. */
   telephonyProvider?: ITelephonyProvider;
+  /** Tests turn this off so they do not synthesize on boot. */
+  warmSpeechCache?: boolean;
 }
 
 export async function buildApp(
@@ -80,11 +84,32 @@ export async function buildApp(
       : undefined);
 
   if (speech && telephony) {
-    await app.register(voiceRoutes, { db, env, telephony, speech });
+    const cache = new SpeechCache(speech);
+    await app.register(voiceRoutes, { db, env, telephony, speech, cache });
     app.log.info(
       { carrier: telephony.name, prefix: telephony.routePrefix },
       'voice channel registered',
     );
+
+    /**
+     * Warm in the background.
+     *
+     * Awaiting it would hold the health check behind a handful of Azure round
+     * trips, and Render would call that a failed deploy. A call that lands
+     * mid-warm simply synthesizes the greeting the old way.
+     */
+    if (options.warmSpeechCache !== false) {
+      void warmAllBusinesses(cache, db)
+        .then((result) => app.log.info(result, 'speech cache warmed'))
+        .catch((error: unknown) =>
+          app.log.warn(
+            { err: error instanceof Error ? error.message : error },
+            'speech cache warming failed — greetings will synthesize on demand',
+          ),
+        );
+    }
+
+    app.addHook('onClose', () => cache.close());
   } else {
     const missing = [
       speech ? undefined : 'AZURE_SPEECH_KEY',

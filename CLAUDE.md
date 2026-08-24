@@ -37,6 +37,7 @@ Voice checks (all read-only, none of them place a call):
 
 ```bash
 pnpm --filter @frontly/api verify:telnyx   # does the account match the code?
+pnpm --filter @frontly/api bench:latency   # p50/p95 per stage of a turn
 pnpm --filter @frontly/api verify:azure    # real TTS -> STT round trip
 pnpm --filter @frontly/api simulate:call   # a whole call, no phone involved
 pnpm --filter @frontly/core bench          # first-token vs first-sentence
@@ -110,6 +111,36 @@ add drizzle to the API.
 - **`ANTHROPIC_MODEL` must be read, not assumed.** It was declared in the env
   schema and consumed by nobody for all of Phase 2 — every call silently used a
   hardcoded constant. `resolveModelId()` is the only place that decides.
+- **The tool round trip is not the latency problem — a second model call is.**
+  Measured over 24 turns: `check_availability` and `book_appointment` cost
+  **8ms p50, 44ms p95**. A tool turn still costs ~2.4s more than a plain one,
+  because the first model call emits no text at all (it only asks for the
+  tool), so the spoken reply needs a whole extra generation. Optimising the
+  database here would buy nothing; fewer round trips or a faster model is the
+  only lever. `pnpm --filter @frontly/api bench:latency` re-measures it.
+- **Fixed lines are pre-synthesized at boot** (`voice/speech-cache.ts`,
+  warmed by `voice/warm.ts`). The greeting went from ~800ms to **~35ms** that
+  way. The cache key includes the voice profile, not just the text — leaving
+  `rate` or `voiceName` out would serve a re-voiced clinic its old audio, and
+  the bug would only ever be audible. Warming happens in the background at
+  boot; awaiting it would fail Render's health check.
+- **A filler only helps if it is already synthesized.** If a turn is silent for
+  800ms a cached acknowledgement plays ("Само момент", rotated so it is never
+  the same twice running). When the cache is cold the session stays quiet on
+  purpose — synthesizing a filler would cost exactly what the filler exists to
+  hide.
+- **The silence clock starts when the agent stops SPEAKING, not thinking.** It
+  used to be armed the moment the model returned, while the reply was still
+  playing, so any answer longer than the 6s window reprompted the caller over
+  its own sentence — and the second reprompt hung up on them. Pre-synthesized
+  phrases made it trivial to hit; the bug had been there all along.
+- **`PlaybackQueue.whenDrained()` supports several waiters.** It used to hold a
+  single callback, so the greeting, a turn and the silence timer waiting at
+  once left all but the newest on a promise that never settled.
+- **`tsc -p tsconfig.check.json` is the typecheck; the build config is not.**
+  The build compiles only `src/` into `dist/`, which left `scripts/` and
+  `*.test.ts` unchecked — two scripts with unterminated string literals passed
+  a green `pnpm typecheck` and only failed when tsx ran them.
 - **Time-to-first-token dominates voice latency**, not sentence length. Measured
   on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
   fix a slow first token — only a faster model, a shorter system prompt, or a

@@ -54,7 +54,7 @@ export interface PlaybackSink {
 export class PlaybackQueue {
   private frames: Buffer[] = [];
   private timer: NodeJS.Timeout | undefined;
-  private onDrained: (() => void) | undefined;
+  private drainWaiters: (() => void)[] = [];
 
   constructor(
     private readonly sink: PlaybackSink,
@@ -75,11 +75,17 @@ export class PlaybackQueue {
     this.start();
   }
 
-  /** Resolves when everything queued has been sent. */
+  /**
+   * Resolves when everything queued has been sent.
+   *
+   * Several callers may wait at once — the greeting, a turn, and the silence
+   * timer all care when the line goes quiet. A single callback slot silently
+   * dropped every waiter but the last, which is a promise that never settles.
+   */
   whenDrained(): Promise<void> {
     if (!this.isPlaying) return Promise.resolve();
     return new Promise((resolve) => {
-      this.onDrained = resolve;
+      this.drainWaiters.push(resolve);
     });
   }
 
@@ -93,8 +99,13 @@ export class PlaybackQueue {
     this.frames = [];
     this.stopTimer();
     if (had) this.sink.clear();
-    this.onDrained?.();
-    this.onDrained = undefined;
+    this.releaseWaiters();
+  }
+
+  private releaseWaiters(): void {
+    const waiting = this.drainWaiters;
+    this.drainWaiters = [];
+    for (const resolve of waiting) resolve();
   }
 
   private start(): void {
@@ -103,8 +114,7 @@ export class PlaybackQueue {
       const frame = this.frames.shift();
       if (!frame) {
         this.stopTimer();
-        this.onDrained?.();
-        this.onDrained = undefined;
+        this.releaseWaiters();
         return;
       }
       this.sink.sendFrame(frame.toString('base64'));

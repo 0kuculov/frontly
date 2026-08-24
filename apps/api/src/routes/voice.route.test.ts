@@ -62,7 +62,11 @@ beforeAll(async () => {
     PUBLIC_BASE_URL: 'https://frontly.onrender.com',
   });
 
-  ({ app } = await buildApp(env, { telephonyProvider: telephony, speechProvider: inertSpeech }));
+  ({ app } = await buildApp(env, {
+    telephonyProvider: telephony,
+    speechProvider: inertSpeech,
+    warmSpeechCache: false,
+  }));
   await app.ready();
 });
 
@@ -175,7 +179,15 @@ describe('POST /telnyx/voice', () => {
       name: 'Втора ординација',
       slug: 'vtora',
       inboundNumber: '+38921000000',
-      workingHours: { mon: [{ start: '09:00', end: '17:00' }] },
+      workingHours: {
+        mon: [{ start: '09:00', end: '17:00' }],
+        tue: [],
+        wed: [],
+        thu: [],
+        fri: [],
+        sat: [],
+        sun: [],
+      },
       greetingTemplate: 'Добар ден.',
     });
 

@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign as nodeSign } from 'node:crypto';
+import type Anthropic from '@anthropic-ai/sdk';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -7,18 +8,24 @@ import {
   createTestDb,
   DEMO_IDS,
   getBusinessContext,
+  renderGreeting,
   ScriptedLanguageModel,
   scriptedText,
   scriptedToolUse,
+  type ILanguageModel,
+  type ModelRequest,
   type BusinessContext,
   type Conversation,
   type Database,
   type TestDatabase,
 } from '@frontly/core';
-import type { Language } from '@frontly/shared';
+import { DEFAULT_VOICE_CONFIG, type Language } from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
+import { FILLERS } from './phrases.js';
+import { phraseRequest, SpeechCache } from './speech-cache.js';
 import { decodeClientState, encodeClientState, TelnyxProvider, telnyxMediaProtocol } from './telnyx.js';
+import { warmBusiness, warmRequests } from './warm.js';
 import type {
   ISpeechProvider,
   ISpeechToText,
@@ -107,7 +114,11 @@ class FakeProvider implements ISpeechProvider {
   }
 }
 
-const silentLogger = { info: () => {}, warn: () => {}, error: () => {} };
+interface LogEvent {
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  payload: Record<string, unknown>;
+}
 
 interface Harness {
   session: CallSession;
@@ -116,21 +127,32 @@ interface Harness {
   frames: string[];
   clears: number;
   hangUps: number;
+  logs: LogEvent[];
+  /** Filler texts played, in order — see the 'filler played' log line. */
+  fillers: string[];
 }
 
 function makeSession(
-  model: ScriptedLanguageModel,
+  model: ILanguageModel,
   overrides: Partial<CallSessionOptions> = {},
 ): Harness {
-  const provider = new FakeProvider();
+  const provider = (overrides.provider as FakeProvider | undefined) ?? new FakeProvider();
   const callRef = `v3:test_${Math.random().toString(36).slice(2)}`;
+  const logs: LogEvent[] = [];
   const harness: Harness = {
     provider,
     callRef,
     frames: [],
     clears: 0,
     hangUps: 0,
+    logs,
+    fillers: [],
     session: undefined as unknown as CallSession,
+  };
+
+  const record = (level: LogEvent['level']) => (payload: Record<string, unknown>, message: string) => {
+    logs.push({ level, message, payload });
+    if (message === 'filler played') harness.fillers.push(String(payload.text));
   };
 
   harness.session = new CallSession({
@@ -142,7 +164,7 @@ function makeSession(
     model,
     callRef,
     from: '+38970111222',
-    logger: silentLogger,
+    logger: { info: record('info'), warn: record('warn'), error: record('error') },
     onHangUp: () => {
       harness.hangUps++;
     },
@@ -689,5 +711,240 @@ describe('telnyx webhook signatures', () => {
   it('stays open when no public key is configured, for local development', () => {
     const open = new TelnyxProvider({ apiKey: 'k' });
     expect(open.verifyWebhook({ raw: body, headers: {} })).toBe(true);
+  });
+});
+
+// --- pre-synthesized speech --------------------------------------------------
+
+/** A model that takes its time, so the filler timer actually fires. */
+class SlowModel implements ILanguageModel {
+  constructor(
+    private readonly delayMs: number,
+    private readonly text: string,
+  ) {}
+
+  async complete(request: ModelRequest): Promise<Anthropic.Message> {
+    await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    request.onTextDelta?.(this.text);
+    // Only the fields the engine reads. The SDK's Message grows optional
+    // fields between versions and none of them matter here.
+    return {
+      id: 'msg_slow',
+      type: 'message',
+      role: 'assistant',
+      model: 'test',
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 0, output_tokens: 0 } as Anthropic.Usage,
+      content: [{ type: 'text', text: this.text, citations: null } as Anthropic.ContentBlock],
+    } as Anthropic.Message;
+  }
+}
+
+describe('speech cache', () => {
+  const profile = DEFAULT_VOICE_CONFIG.mk;
+
+  it('keys on the voice profile, not just the text', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+
+    await cache.warm(phraseRequest('Здраво.', 'mk', profile));
+
+    expect(cache.get(phraseRequest('Здраво.', 'mk', profile))).toBeDefined();
+    // Re-voicing a clinic from the dashboard must not serve the old voice.
+    expect(
+      cache.get(phraseRequest('Здраво.', 'mk', { ...profile, voiceName: 'mk-MK-MarijaNeural' })),
+    ).toBeUndefined();
+    expect(cache.get(phraseRequest('Здраво.', 'mk', { ...profile, rate: '+10%' }))).toBeUndefined();
+  });
+
+  it('synthesizes once when the same phrase is warmed concurrently', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+    const request = phraseRequest('Само момент.', 'mk', profile);
+
+    await Promise.all([cache.warm(request), cache.warm(request), cache.warm(request)]);
+
+    expect(provider.tts.spoken).toHaveLength(1);
+  });
+
+  it('warms every fixed phrase a business can say', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+
+    const result = await warmBusiness(cache, context.business);
+
+    expect(result.failed).toBe(0);
+    expect(result.warmed).toBe(warmRequests(context.business).length);
+    // The greeting must be warmed with the same pause flag the session asks
+    // for, or the key differs and the cache silently never hits.
+    expect(
+      cache.get(
+        phraseRequest(renderGreeting(context.business), 'mk', profile, {
+          breakAfterFirstSentence: true,
+        }),
+      ),
+    ).toBeDefined();
+    expect(cache.get(phraseRequest(FILLERS.mk[0]!, 'mk', profile))).toBeDefined();
+  });
+});
+
+describe('greeting latency', () => {
+  it('greets from cache without synthesizing or waiting for the recognizer', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+    await warmBusiness(cache, context.business);
+    provider.tts.spoken.length = 0;
+
+    const h = makeSession(new ScriptedLanguageModel([]), { cache, provider });
+    await h.session.start();
+
+    // Nothing reached Azure: the caller heard bytes that already existed.
+    expect(provider.tts.spoken).toHaveLength(0);
+    expect(h.frames.length).toBeGreaterThan(0);
+    await h.session.stop('test');
+  });
+
+  it('still greets correctly when the cache is cold', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]));
+    await h.session.start();
+
+    expect(h.provider.tts.spoken[0]!.text).toContain(context.business.name);
+    // The pause between greeting and question is not lost on the slow path.
+    expect(h.provider.tts.spoken[0]!.breakAfterFirstSentence).toBe(true);
+    await h.session.stop('test');
+  });
+
+  it('serves the fixed apologies from cache too', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+    await warmBusiness(cache, context.business);
+
+    const h = makeSession(new ScriptedLanguageModel([]), { cache, provider });
+    await h.session.start();
+    provider.tts.spoken.length = 0;
+
+    h.provider.stt!.handlers.onError(new Error('azure exploded'));
+    await settle();
+
+    // The recovery path is what a struggling call depends on; it must not be
+    // the slowest thing the agent does.
+    expect(provider.tts.spoken).toHaveLength(0);
+    expect(h.frames.length).toBeGreaterThan(0);
+    await h.session.stop('test');
+  });
+});
+
+describe('filler audio', () => {
+  it('covers a slow turn and rotates so it never repeats back to back', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+    await warmBusiness(cache, context.business);
+
+    const h = makeSession(new SlowModel(150, 'Готово.'), {
+      cache,
+      provider,
+      fillerAfterMs: 20,
+      // The harness reprompts after 40 ms by default, which would end the call
+      // between the two turns this test needs.
+      silenceMs: 5000,
+    });
+    await h.session.start();
+
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    await settle(400);
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    await settle(400);
+
+    expect(h.fillers.length).toBeGreaterThanOrEqual(2);
+    expect(h.fillers[0]).not.toBe(h.fillers[1]);
+    for (const filler of h.fillers) {
+      expect(FILLERS.mk as readonly string[]).toContain(filler);
+    }
+    await h.session.stop('test');
+  });
+
+  it('stays quiet when the turn is fast enough not to need one', async () => {
+    const provider = new FakeProvider();
+    const cache = new SpeechCache(provider);
+    await warmBusiness(cache, context.business);
+
+    const h = makeSession(new ScriptedLanguageModel([scriptedText('Готово.')]), {
+      cache,
+      provider,
+      fillerAfterMs: 500,
+      silenceMs: 5000,
+    });
+    await h.session.start();
+    h.fillers.length = 0;
+
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    await settle(200);
+
+    expect(h.fillers).toHaveLength(0);
+    await h.session.stop('test');
+  });
+
+  it('says nothing extra when the cache is cold', async () => {
+    // A filler that has to be synthesized first is not a filler.
+    const h = makeSession(new SlowModel(150, 'Готово.'), {
+      fillerAfterMs: 20,
+      silenceMs: 5000,
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    await settle(400);
+
+    expect(h.fillers).toHaveLength(0);
+    const said = h.provider.tts.spoken.map((s) => s.text);
+    expect(said.some((t) => (FILLERS.mk as readonly string[]).includes(t))).toBe(false);
+    await h.session.stop('test');
+  });
+});
+
+describe('silence clock', () => {
+  it('does not reprompt over the agent while it is still speaking', async () => {
+    // The clock used to start when the model finished, not when the audio
+    // finished. A reply longer than the silence window then reprompted over
+    // its own sentence, and the second reprompt hung up on the caller.
+    const h = makeSession(new ScriptedLanguageModel([scriptedText('Готово.')]), {
+      silenceMs: 30,
+      frameIntervalMs: 5,
+    });
+    h.provider.tts.frames = 40; // ~200 ms of audio at 5 ms/frame
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    await settle(120);
+
+    // Mid-reply: the caller is listening, not silent.
+    expect(h.provider.tts.spoken.map((s) => s.text)).not.toContain('Сè уште сте тука?');
+    expect(h.hangUps).toBe(0);
+    await h.session.stop('test');
+  });
+
+  it('still reprompts once the line is genuinely quiet', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]), { silenceMs: 30, frameIntervalMs: 1 });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    await settle(120);
+    expect(h.provider.tts.spoken.map((s) => s.text)).toContain('Сè уште сте тука?');
+    await h.session.stop('test');
+  });
+});
+
+describe('playback queue', () => {
+  it('wakes every waiter, not just the last one to ask', async () => {
+    // A single callback slot dropped all but the newest waiter, leaving the
+    // others on a promise that never settled.
+    const queue = new PlaybackQueue({ sendFrame: () => {}, clear: () => {} }, 1);
+    queue.enqueue(Buffer.alloc(160 * 5, 0xff));
+
+    const waiters = [queue.whenDrained(), queue.whenDrained(), queue.whenDrained()];
+    await expect(Promise.all(waiters)).resolves.toHaveLength(3);
   });
 });

@@ -7,6 +7,7 @@ import {
 } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
 import { CallSession } from '../voice/session.js';
+import type { SpeechCache } from '../voice/speech-cache.js';
 import { createSink, type ITelephonyProvider } from '../voice/telephony.js';
 import type { ISpeechProvider } from '../voice/types.js';
 
@@ -24,10 +25,12 @@ export interface VoiceRoutesOptions {
   env: ServerEnv;
   telephony: ITelephonyProvider;
   speech: ISpeechProvider;
+  /** Pre-synthesized fixed phrases: the greeting, the fillers, the apologies. */
+  cache?: SpeechCache | undefined;
 }
 
 export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, opts) => {
-  const { db, env, telephony, speech } = opts;
+  const { db, env, telephony, speech, cache } = opts;
   const model = new AnthropicLanguageModel({ model: env.ANTHROPIC_MODEL });
 
   /**
@@ -292,6 +295,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
           callRef: input.callRef,
           from: input.from,
           logger: app.log,
+          cache,
           onHangUp: endCall,
           onTransfer: async (to) => {
             await telephony.transfer({

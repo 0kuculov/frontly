@@ -78,8 +78,8 @@ export async function seedDemoBusiness(db: Database, options: SeedOptions = {}):
     name: 'Дентал Охрид',
     slug: DEMO_BUSINESS_SLUG,
     phoneNumber: '+389 46 260 100',
-    // Filled in during Phase 3, once a Twilio number is bought.
-    twilioNumber: null,
+    // Filled in during Phase 3, once a number is bought and assigned.
+    inboundNumber: null,
     timezone: 'Europe/Skopje',
     languages: ['mk', 'sq', 'en'] as Language[],
     workingHours: CLINIC_HOURS,
@@ -92,9 +92,9 @@ export async function seedDemoBusiness(db: Database, options: SeedOptions = {}):
     voiceConfig: DEFAULT_VOICE_CONFIG,
   };
 
-  // twilioNumber is deliberately left out of the update set: Phase 3 assigns a
+  // inboundNumber is deliberately left out of the update set: Phase 3 assigns a
   // real number and re-seeding must not wipe it.
-  const { id: _businessId, twilioNumber: _twilioNumber, ...businessUpdates } = businessValues;
+  const { id: _businessId, inboundNumber: _inboundNumber, ...businessUpdates } = businessValues;
 
   await db
     .insert(businesses)

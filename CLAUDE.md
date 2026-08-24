@@ -16,6 +16,7 @@ Deadline: **10 September 2026** — incubator application + live stage demo.
 | API | https://frontly.onrender.com — health: https://frontly.onrender.com/health |
 | Database | Turso, `libsql://frontly-0kuculov.aws-eu-west-1.turso.io` (migrated + seeded) |
 | Repo | https://github.com/0kuculov/frontly (`main` auto-deploys to Render) |
+| Phone | **+1 619 349 7599** (Telnyx, US local). A +389 toll-free is requested and pending. |
 | Dashboard | not deployed yet (Phase 4 → Vercel) |
 
 ## Commands
@@ -30,6 +31,15 @@ pnpm db:seed        # upsert demo clinic (idempotent)
 pnpm db:reset       # re-seed + clear its appointments/conversations
 pnpm db:generate    # after ANY schema edit
 pnpm db:studio
+```
+
+Voice checks (all read-only, none of them place a call):
+
+```bash
+pnpm --filter @frontly/api verify:telnyx   # does the account match the code?
+pnpm --filter @frontly/api verify:azure    # real TTS -> STT round trip
+pnpm --filter @frontly/api simulate:call   # a whole call, no phone involved
+pnpm --filter @frontly/core bench          # first-token vs first-sentence
 ```
 
 ## Architecture invariant
@@ -83,6 +93,10 @@ add drizzle to the API.
   fails. The `"pnpm"` key in package.json is NOT read by pnpm 11.
 - **`engines.node` is `>=24 <25`** and overrides Render's `NODE_VERSION`. An
   open `>=22` let a deploy pick up Node 26.
+- **A vendor name in a schema is a trap.** `businesses.twilio_number` became
+  `inbound_number` (migration `0001`) when the carrier changed and will hold a
+  +389 number next. Routing falls back to the only business when exactly one
+  exists, which is why the demo works with the column still NULL.
 - **The engine may only offer times `check_availability` returned.** Enforced in
   `engine/executor.ts` against `state.offeredSlots`, not by the prompt. A single-day
   lookup returns EVERY free time; only multi-day ranges are sampled — handed a
@@ -112,6 +126,41 @@ add drizzle to the API.
   drops the prosody rate that makes the agent intelligible on an 8kHz line.
   Voice name and rate are **per-business config**, never constants.
 
+### Telnyx, and the Twilio assumptions that do not survive it
+
+The carrier was Twilio until August 2026 and is now Telnyx (Twilio sells no
++389 inventory and gates its pricing API behind an upgrade Macedonia cannot
+perform). Everything carrier-shaped lives behind `ITelephonyProvider` in
+`apps/api/src/voice/telephony.ts`. Four differences bite, and every one of them
+fails *silently* if carried across from Twilio:
+
+- **Closing the media socket does not end the call.** Twilio's `<Connect>` was
+  terminal. Telnyx keeps the socket and the call independent, so hang-up is an
+  explicit `POST /calls/{id}/actions/hangup`. Skip it and the caller holds an
+  open, silent, billable line.
+- **There is no TwiML.** A call is answered by POSTing a command, and the media
+  stream is opened by parameters on *that same command* — one round trip, not
+  answer-then-`streaming_start`, which would leave the caller in silence while
+  the second call is in flight.
+- **The stream id is `stream_id` at the top level**, not `streamSid` inside
+  `start`, and **outbound frames carry no identifier at all**.
+- **`client_state` replaces `<Parameter>`.** It is base64, set on `answer`, and
+  echoed back in the socket's `start` event. It is the only thing bridging the
+  webhook and the media socket, which are separate connections — an in-memory
+  map would not survive two Render instances.
+- **Webhooks are signed with Ed25519 over `${timestamp}|${rawBody}`**, headers
+  `telnyx-signature-ed25519` and `telnyx-timestamp`, 5-minute replay window.
+  This needs the *raw bytes*: Fastify's default JSON parse plus a re-serialize
+  is not byte-identical, so the voice plugin installs its own buffer parser.
+- `stream_bidirectional_target_legs` is set to **`both`**, not the API default
+  of `opposite`. An unbridged inbound leg has no opposite, and the docs do not
+  say which side it counts as; `both` is correct under either reading. **If a
+  live call connects but the caller hears nothing, this is the first knob.**
+- **`transfer_to_human` needs an outbound voice profile** on the connection —
+  a transfer places an outbound call. There is none yet, so the agent
+  apologises and promises a callback instead of claiming a transfer it did not
+  make. `pnpm --filter @frontly/api verify:telnyx` reports this.
+
 ## Demo data
 
 `Дентал Охрид`, a dental clinic in Ohrid. Mon–Fri 09:00–17:00, Sat 09:00–13:00.
@@ -124,7 +173,7 @@ honest.
 
 1. Foundation — **done, deployed**
 2. Conversation engine (`handleTurn`, tools, Macedonian prompt) — **done**
-3. Voice channel — **built, unverified on a real call** (no Twilio number yet)
+3. Voice channel (Telnyx ↔ Azure Speech) — **built, awaiting a real call**
 4. Owner dashboard
 5. Chat channel (embeddable widget)
 6. Follow-up (SMS confirmation, reminder, daily summary)

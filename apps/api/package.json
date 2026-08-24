@@ -12,18 +12,16 @@
     "test": "vitest run",
     "verify:azure": "tsx scripts/verify-azure.ts",
     "simulate:call": "tsx scripts/simulate-call.ts",
-    "check:numbers": "tsx scripts/check-phone-numbers.ts",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "verify:telnyx": "tsx scripts/verify-telnyx.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
-    "@fastify/formbody": "^8.0.2",
     "@fastify/sensible": "^6.0.3",
     "@fastify/websocket": "^11.3.0",
     "@frontly/core": "workspace:*",
     "@frontly/shared": "workspace:*",
     "microsoft-cognitiveservices-speech-sdk": "^1.51.0",
-    "twilio": "^6.1.0",
     "fastify": "^5.12.1"
   },
   "devDependencies": {

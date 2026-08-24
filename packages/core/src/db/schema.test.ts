@@ -189,7 +189,7 @@ describe('one conversations table for every channel', () => {
     expect(voice?.transcript[1]).toMatchObject({ role: 'customer', confidence: 0.94 });
   });
 
-  it('keeps one row per call, so a Twilio retry cannot duplicate it', async () => {
+  it('keeps one row per call, so a carrier retry cannot duplicate it', async () => {
     const message = await failureText(() =>
       db.insert(conversations).values({
         businessId: DEMO_IDS.business,

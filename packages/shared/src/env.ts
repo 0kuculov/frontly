@@ -4,7 +4,7 @@ import { z } from 'zod';
  * One zod schema for every server-side environment variable in the monorepo.
  *
  * Two rules shape it:
- *  1. Phase-1 booting must not require Twilio/Azure/Anthropic keys, so those
+ *  1. Phase-1 booting must not require carrier/Azure/Anthropic keys, so those
  *     are optional here and demanded at point of use via `requireEnv`.
  *  2. Anything that would silently misbehave in production is checked here
  *     instead — a `file:` database on Render's ephemeral disk, a Turso URL
@@ -50,9 +50,18 @@ const serverEnvShape = z
     ANTHROPIC_MODEL: z.string().default('claude-sonnet-5'),
 
     // --- Phase 3 -------------------------------------------------------
-    TWILIO_ACCOUNT_SID: z.string().optional(),
-    TWILIO_AUTH_TOKEN: z.string().optional(),
-    TWILIO_PHONE_NUMBER: z.string().optional(),
+    /** Telnyx API v2 key. Bearer token on every Call Control command. */
+    TELNYX_API_KEY: z.string().optional(),
+    /** E.164, the number callers dial. Also the caller ID a transfer presents. */
+    TELNYX_PHONE_NUMBER: z.string().optional(),
+    /**
+     * Account Settings → Keys & Credentials → Public Key, base64.
+     *
+     * Optional so local development works without it, but its absence turns
+     * webhook signature checking off — which is why production demands it
+     * below rather than trusting the default.
+     */
+    TELNYX_PUBLIC_KEY: z.string().optional(),
     AZURE_SPEECH_KEY: z.string().optional(),
     AZURE_SPEECH_REGION: z.string().default('italynorth'),
 
@@ -86,18 +95,34 @@ const serverEnvShape = z
 
     /**
      * PUBLIC_BASE_URL only means anything once an inbound channel has to hand
-     * out callback URLs, which is Twilio in Phase 3. Requiring it at boot
+     * out callback URLs, which is telephony in Phase 3. Requiring it at boot
      * blocked the Phase 1 deploy over a Phase 3 concern — so it is demanded
-     * when Twilio is actually configured, and by requireEnv at the point the
-     * voice adapter builds a webhook URL.
+     * when the carrier is actually configured, and by requireEnv at the point
+     * the voice adapter builds a stream URL.
      */
-    if (env.NODE_ENV === 'production' && env.TWILIO_ACCOUNT_SID && !env.PUBLIC_BASE_URL) {
+    if (env.NODE_ENV === 'production' && env.TELNYX_API_KEY && !env.PUBLIC_BASE_URL) {
       ctx.addIssue({
         code: 'custom',
         path: ['PUBLIC_BASE_URL'],
         message:
-          'TWILIO_ACCOUNT_SID is set but PUBLIC_BASE_URL is not — Twilio webhook URLs are ' +
-          'built from it, so inbound calls would be pointed at nowhere.',
+          'TELNYX_API_KEY is set but PUBLIC_BASE_URL is not — the media stream URL handed ' +
+          'to Telnyx is built from it, so answered calls would carry no audio.',
+      });
+    }
+
+    /**
+     * Without the public key the adapter cannot verify webhook signatures and
+     * accepts anything. That is fine on a laptop and unacceptable on a public
+     * URL, where the endpoint answers phone calls that cost money.
+     */
+    if (env.NODE_ENV === 'production' && env.TELNYX_API_KEY && !env.TELNYX_PUBLIC_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TELNYX_PUBLIC_KEY'],
+        message:
+          'TELNYX_API_KEY is set but TELNYX_PUBLIC_KEY is not — webhook signatures would go ' +
+          'unverified, leaving a public endpoint that answers calls for anyone who posts to it. ' +
+          'Copy it from Telnyx → Account Settings → Keys & Credentials → Public Key.',
       });
     }
   });

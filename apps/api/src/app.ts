@@ -1,12 +1,14 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import formbody from '@fastify/formbody';
 import sensible from '@fastify/sensible';
 import websocket from '@fastify/websocket';
 import { createDb, enableForeignKeys, type Database } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
 import { healthRoutes } from './routes/health.js';
 import { voiceRoutes } from './routes/voice.js';
+import { AzureSpeechProvider } from './voice/azure.js';
+import { TelnyxProvider } from './voice/telnyx.js';
+import type { ITelephonyProvider } from './voice/telephony.js';
 import type { ISpeechProvider } from './voice/types.js';
 
 export const API_VERSION = '0.1.0';
@@ -20,13 +22,15 @@ export interface BuildAppResult {
  * Builds the server without listening, so tests can drive it via app.inject()
  * and the stage demo can be exercised without a port.
  *
- * Channel adapters (Twilio voice in Phase 3, the chat widget socket in Phase 5)
+ * Channel adapters (telephony in Phase 3, the chat widget socket in Phase 5)
  * register here as plugins. They may talk to @frontly/core; core never reaches
  * back into this file.
  */
 export interface BuildAppOptions {
   /** Injectable so the voice tests can drive a call with fake speech. */
   speechProvider?: ISpeechProvider;
+  /** Injectable so the voice tests never place a real call. */
+  telephonyProvider?: ITelephonyProvider;
 }
 
 export async function buildApp(
@@ -45,14 +49,11 @@ export async function buildApp(
         : {}),
     },
     // Render terminates TLS upstream, so the caller's IP and the https scheme
-    // arrive in X-Forwarded-*. Twilio signature validation (Phase 3) checks the
-    // request URL, which has to be the public one.
+    // arrive in X-Forwarded-*.
     trustProxy: true,
   });
 
   await app.register(sensible);
-  // Twilio posts application/x-www-form-urlencoded.
-  await app.register(formbody);
   await app.register(websocket);
   await app.register(cors, {
     origin: env.APP_ORIGIN,
@@ -61,16 +62,35 @@ export async function buildApp(
 
   await app.register(healthRoutes, { db, version: API_VERSION });
 
-  // The voice channel needs Azure; without a key the rest of the API still
-  // boots, which is what keeps a partially-configured deploy usable.
-  if (options.speechProvider || env.AZURE_SPEECH_KEY) {
-    await app.register(voiceRoutes, {
-      db,
-      env,
-      ...(options.speechProvider ? { provider: options.speechProvider } : {}),
-    });
+  /**
+   * The voice channel needs both a carrier and a speech provider. Missing
+   * either disables it and leaves the rest of the API up, which is what keeps
+   * a half-configured deploy usable instead of crash-looping.
+   */
+  const speech: ISpeechProvider | undefined =
+    options.speechProvider ??
+    (env.AZURE_SPEECH_KEY
+      ? new AzureSpeechProvider({ key: env.AZURE_SPEECH_KEY, region: env.AZURE_SPEECH_REGION })
+      : undefined);
+
+  const telephony: ITelephonyProvider | undefined =
+    options.telephonyProvider ??
+    (env.TELNYX_API_KEY
+      ? new TelnyxProvider({ apiKey: env.TELNYX_API_KEY, publicKey: env.TELNYX_PUBLIC_KEY })
+      : undefined);
+
+  if (speech && telephony) {
+    await app.register(voiceRoutes, { db, env, telephony, speech });
+    app.log.info(
+      { carrier: telephony.name, prefix: telephony.routePrefix },
+      'voice channel registered',
+    );
   } else {
-    app.log.warn('AZURE_SPEECH_KEY is not set — the voice channel is disabled');
+    const missing = [
+      speech ? undefined : 'AZURE_SPEECH_KEY',
+      telephony ? undefined : 'TELNYX_API_KEY',
+    ].filter(Boolean);
+    app.log.warn({ missing }, 'voice channel disabled');
   }
 
   app.get('/', async () => ({

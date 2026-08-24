@@ -1,12 +1,12 @@
 import { FRAME_BYTES } from './types.js';
 
 /**
- * Mulaw framing for Twilio.
+ * Mulaw framing for the carrier.
  *
- * Twilio plays whatever it is sent, as fast as it is sent — there is no
+ * Carriers play whatever they are sent, as fast as it is sent — there is no
  * back-pressure and no clock. Dumping six seconds of audio in one message
  * works, but then a barge-in cannot stop it: the caller has to talk over
- * everything already buffered on Twilio's side.
+ * everything already buffered on the carrier's side.
  *
  * So audio goes out in 20 ms frames on a real timer. The cost is a little
  * bookkeeping; the benefit is that "stop talking" means stopping within 20 ms.
@@ -15,7 +15,7 @@ import { FRAME_BYTES } from './types.js';
 /** Mulaw silence. 0xFF is zero amplitude in mu-law, not 0x00. */
 export const MULAW_SILENCE = 0xff;
 
-/** Split raw mulaw into the 160-byte frames Twilio expects. */
+/** Split raw mulaw into the 160-byte frames the carrier expects. */
 export function toFrames(audio: Buffer): Buffer[] {
   const frames: Buffer[] = [];
   for (let offset = 0; offset < audio.length; offset += FRAME_BYTES) {
@@ -41,7 +41,7 @@ export function durationMs(audio: Buffer): number {
 export interface PlaybackSink {
   /** Send one media frame (base64 mulaw). */
   sendFrame(base64: string): void;
-  /** Tell Twilio to discard anything it has buffered — the barge-in primitive. */
+  /** Tell the carrier to discard anything it has buffered — the barge-in primitive. */
   clear(): void;
 }
 
@@ -84,7 +84,7 @@ export class PlaybackQueue {
   }
 
   /**
-   * Barge-in. Drops everything not yet sent and tells Twilio to bin what it
+   * Barge-in. Drops everything not yet sent and tells the carrier to bin what it
    * already has, so the agent goes quiet within a frame rather than finishing
    * its sentence over the caller.
    */

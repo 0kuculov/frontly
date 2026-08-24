@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 /**
  * Prefixed, URL-safe IDs. The prefix costs four bytes and pays for itself the
- * first time a Twilio log line or a stage-demo transcript shows `apt_…` and
+ * first time a carrier log line or a stage-demo transcript shows `apt_…` and
  * you know instantly what you are looking at.
  */
 export const ID_PREFIXES = {

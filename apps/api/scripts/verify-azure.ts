@@ -6,7 +6,7 @@ import { TELEPHONY_SAMPLE_RATE, type TranscriptionResult } from '../src/voice/ty
 /**
  * Proves the speech pipeline without a phone.
  *
- * Synthesizes Macedonian to the exact bytes Twilio would carry, then feeds
+ * Synthesizes Macedonian to the exact bytes the carrier would carry, then feeds
  * those same bytes back into the recognizer. If a sentence survives the round
  * trip, both directions and the mulaw framing are correct — which is most of
  * what can go wrong before a real call.
@@ -65,7 +65,7 @@ async function recognize(audio: Buffer, languages: Language[]): Promise<Transcri
       },
     });
 
-    // Wait for the recognizer, then feed it the way Twilio would: 20 ms frames.
+    // Wait for the recognizer, then feed it the way the carrier would: 20 ms frames.
     void stt.ready.then(() => {
       for (let offset = 0; offset < audio.length; offset += 160) {
         stt.write(audio.subarray(offset, offset + 160));
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     const seconds = audio.length / TELEPHONY_SAMPLE_RATE;
     console.log(`   tts  : ${audio.length} bytes = ${seconds.toFixed(2)}s of mulaw in ${ms}ms`);
 
-    // Twilio carries 160-byte frames; a partial frame means bad framing.
+    // The carrier carries 160-byte frames; a partial frame means bad framing.
     console.log(`   frame: ${Math.floor(audio.length / 160)} full frames, remainder ${audio.length % 160}`);
 
     const heard = await recognize(audio, [language]);

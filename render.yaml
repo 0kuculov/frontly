@@ -4,7 +4,7 @@
 # The dashboard (apps/web) deploys to Vercel separately; see README.
 #
 # Region is Frankfurt on purpose. Phase 3 has a 1.5s end-of-speech-to-response
-# budget shared between Twilio, Azure Speech and Anthropic, and routing Balkan
+# budget shared between Telnyx, Azure Speech and Anthropic, and routing Balkan
 # calls through a US region spends a third of it on the round trip alone.
 
 services:
@@ -44,8 +44,8 @@ services:
       - key: DATABASE_AUTH_TOKEN
         sync: false
 
-      # Public URL of this service. Twilio webhook URLs are built from it,
-      # and boot fails without it in production.
+      # Public URL of this service. The media-stream URL handed to the carrier
+      # is built from it, and boot fails without it in production.
       - key: PUBLIC_BASE_URL
         sync: false
 
@@ -58,11 +58,11 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
-      - key: TWILIO_ACCOUNT_SID
+      - key: TELNYX_API_KEY
         sync: false
-      - key: TWILIO_AUTH_TOKEN
+      - key: TELNYX_PHONE_NUMBER
         sync: false
-      - key: TWILIO_PHONE_NUMBER
+      - key: TELNYX_PUBLIC_KEY
         sync: false
       - key: AZURE_SPEECH_KEY
         sync: false

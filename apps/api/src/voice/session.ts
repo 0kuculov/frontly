@@ -48,12 +48,21 @@ export interface CallSessionOptions {
   provider: ISpeechProvider;
   model: ILanguageModel;
   sink: PlaybackSink;
-  callSid: string;
-  /** Caller ID, when Twilio provides one. */
+  /** The carrier's opaque handle for this call. Never parsed, only logged. */
+  callRef: string;
+  /** Caller ID, when the carrier provides one. */
   from?: string | undefined;
   logger: CallSessionLogger;
   /** Called when the session decides the call is over. */
   onHangUp: () => void;
+  /**
+   * Put the caller through to a human, if the carrier can.
+   *
+   * Optional because a transfer is an outbound call, which not every account
+   * is provisioned for — and an agent that cannot transfer must still say so
+   * politely rather than pretend it did.
+   */
+  onTransfer?: ((to: string) => Promise<void>) | undefined;
 
   /** Reprompt after this much silence. */
   silenceMs?: number;
@@ -80,6 +89,17 @@ const STILL_THERE: Record<Language, string> = {
   mk: 'Сè уште сте тука?',
   sq: 'Jeni ende aty?',
   en: 'Are you still there?',
+};
+
+/**
+ * Said when the agent wanted a human and could not reach one. It promises a
+ * call back rather than claiming a transfer that did not happen — an agent
+ * caught lying about this on stage is worse than one that admits a limit.
+ */
+const TRANSFER_UNAVAILABLE: Record<Language, string> = {
+  mk: 'Во моментов не можам да ве префрлам. Ќе замолам колега да ви се јави на овој број. Пријатен ден.',
+  sq: 'Për momentin nuk mund t’ju transferoj. Do të kërkoj një koleg t’ju telefonojë në këtë numër. Ditë të mbarë.',
+  en: 'I cannot put you through right now. I will ask a colleague to call you back on this number. Have a good day.',
 };
 
 const CALLBACK_OFFER: Record<Language, string> = {
@@ -140,7 +160,7 @@ export class CallSession {
     this.armSilenceTimer();
   }
 
-  /** Inbound media frame from Twilio. */
+  /** Inbound media frame from the carrier. */
   onMedia(base64Payload: string): void {
     if (this.ended || !this.stt) return;
     this.stt.write(Buffer.from(base64Payload, 'base64'));
@@ -162,7 +182,7 @@ export class CallSession {
     await this.persist(true);
     this.options.logger.info(
       {
-        callSid: this.options.callSid,
+        callRef: this.options.callRef,
         reason,
         durationMs: Date.now() - this.startedAt,
         outcome: this.state.outcome ?? 'abandoned',
@@ -182,7 +202,7 @@ export class CallSession {
   private onSpeechStarted(): void {
     this.clearSilenceTimer();
     if (this.playback.isPlaying) {
-      this.options.logger.info({ callSid: this.options.callSid }, 'barge-in');
+      this.options.logger.info({ callRef: this.options.callRef }, 'barge-in');
       this.playback.interrupt();
     }
   }
@@ -201,7 +221,7 @@ export class CallSession {
       this.languageLocked = true;
       this.state.language = result.detectedLanguage;
       this.options.logger.info(
-        { callSid: this.options.callSid, language: this.language },
+        { callRef: this.options.callRef, language: this.language },
         'language locked',
       );
     }
@@ -210,7 +230,7 @@ export class CallSession {
     if (result.confidence < minConfidence) {
       this.lowConfidenceStreak++;
       this.options.logger.warn(
-        { callSid: this.options.callSid, confidence: result.confidence, text: result.text },
+        { callRef: this.options.callRef, confidence: result.confidence, text: result.text },
         'low confidence transcription',
       );
       this.record({ role: 'customer', text: result.text, confidence: result.confidence });
@@ -228,7 +248,7 @@ export class CallSession {
 
   private async onSttError(error: Error): Promise<void> {
     this.options.logger.error(
-      { callSid: this.options.callSid, err: error.message },
+      { callRef: this.options.callRef, err: error.message },
       'speech recognition failed',
     );
     // Never fail silently: say something and offer a human.
@@ -259,7 +279,7 @@ export class CallSession {
     const spokenSentences: string[] = [];
 
     try {
-      const result = await handleTurn(this.conversationId ?? this.options.callSid, text, {
+      const result = await handleTurn(this.conversationId ?? this.options.callRef, text, {
         db: this.options.db,
         model: this.options.model,
         business: this.options.business,
@@ -272,7 +292,7 @@ export class CallSession {
         onLatinLeak: (leak) => {
           if (leak.unconverted.length === 0) return;
           this.options.logger.warn(
-            { callSid: this.options.callSid, tokens: leak.unconverted, reply: leak.reply },
+            { callRef: this.options.callRef, tokens: leak.unconverted, reply: leak.reply },
             'latin-script tokens in a Macedonian reply',
           );
         },
@@ -300,7 +320,7 @@ export class CallSession {
 
       this.options.logger.info(
         {
-          callSid: this.options.callSid,
+          callRef: this.options.callRef,
           // The two numbers that matter, kept apart on purpose: the first is
           // what the caller perceives, the second is what a benchmark shows.
           // Three separate numbers because they are three separate problems:
@@ -323,9 +343,15 @@ export class CallSession {
       }
 
       await this.persist(false);
+
+      // The engine asked for a human. Its explanation is already queued, so let
+      // the caller hear it before the line moves anywhere.
+      if (result.toolCalls.some((call) => call.name === 'transfer_to_human')) {
+        await this.handOver();
+      }
     } catch (error) {
       this.options.logger.error(
-        { callSid: this.options.callSid, err: error instanceof Error ? error.message : error },
+        { callRef: this.options.callRef, err: error instanceof Error ? error.message : error },
         'turn failed',
       );
       await this.speak(DID_NOT_CATCH[this.language]);
@@ -348,6 +374,46 @@ export class CallSession {
   /** True while a turn is in flight — the simulation uses it to pace itself. */
   get isThinking(): boolean {
     return this.busy;
+  }
+
+  /**
+   * Hand the call to a human.
+   *
+   * Waits for playback to drain first: transferring mid-sentence cuts the agent
+   * off in the caller's ear and sounds like the call dropped.
+   */
+  private async handOver(): Promise<void> {
+    await this.playback.whenDrained();
+    const to = this.options.business.ownerMobile ?? undefined;
+
+    if (!this.options.onTransfer || !to) {
+      this.options.logger.warn(
+        { callRef: this.options.callRef, hasRoute: Boolean(this.options.onTransfer), to },
+        'transfer requested but no route is configured',
+      );
+      await this.speak(TRANSFER_UNAVAILABLE[this.language]);
+      await this.playback.whenDrained();
+      await this.stop('transfer_unavailable');
+      this.options.onHangUp();
+      return;
+    }
+
+    try {
+      await this.options.onTransfer(to);
+      this.options.logger.info({ callRef: this.options.callRef, to }, 'transferred to a human');
+      // The carrier owns the call from here; stop our side without hanging up,
+      // or we would drop the call we just handed over.
+      await this.stop('transferred');
+    } catch (error) {
+      this.options.logger.error(
+        { callRef: this.options.callRef, to, err: error instanceof Error ? error.message : error },
+        'transfer failed',
+      );
+      await this.speak(TRANSFER_UNAVAILABLE[this.language]);
+      await this.playback.whenDrained();
+      await this.stop('transfer_failed');
+      this.options.onHangUp();
+    }
   }
 
   // --- speech out ------------------------------------------------------------
@@ -375,7 +441,7 @@ export class CallSession {
     } catch (error) {
       // A failed synthesis must not become dead air or a burst of noise.
       this.options.logger.error(
-        { callSid: this.options.callSid, err: error instanceof Error ? error.message : error },
+        { callRef: this.options.callRef, err: error instanceof Error ? error.message : error },
         'speech synthesis failed',
       );
       this.state.outcome ??= 'transferred';
@@ -436,7 +502,7 @@ export class CallSession {
     const row = await startConversation(this.options.db, {
       businessId: this.options.business.id,
       channel: 'voice',
-      externalId: this.options.callSid,
+      externalId: this.options.callRef,
       fromIdentifier: this.options.from,
       language: this.language,
       startedAt: new Date(this.startedAt),
@@ -460,7 +526,7 @@ export class CallSession {
     } catch (error) {
       // Losing the transcript must not drop the call.
       this.options.logger.error(
-        { callSid: this.options.callSid, err: error instanceof Error ? error.message : error },
+        { callRef: this.options.callRef, err: error instanceof Error ? error.message : error },
         'failed to persist conversation',
       );
     }

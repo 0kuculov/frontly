@@ -11,9 +11,10 @@ import type { Language, VoiceProfile } from '@frontly/shared';
  * These live in apps/api on purpose: @frontly/core knows nothing about audio.
  */
 
-/** Raw mulaw 8 kHz mono, exactly what Twilio sends and accepts. */
+/** Raw mulaw 8 kHz mono. Telnyx calls this codec PCMU; it is what the media
+ * stream carries in both directions. */
 export const TELEPHONY_SAMPLE_RATE = 8000;
-/** 20 ms of mulaw at 8 kHz. Twilio's own frame size. */
+/** 20 ms of mulaw at 8 kHz — one RTP packet. */
 export const FRAME_BYTES = 160;
 
 export interface SynthesisRequest {

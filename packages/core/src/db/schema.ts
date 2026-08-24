@@ -50,8 +50,8 @@ export const businesses = sqliteTable(
     slug: text('slug').notNull(),
     /** The clinic's own public number, shown in the dashboard. */
     phoneNumber: text('phone_number'),
-    /** The Twilio number callers dial. Inbound calls are routed by this. */
-    twilioNumber: text('twilio_number'),
+    /** The number callers dial, whoever carries it. Inbound calls route by this. */
+    inboundNumber: text('inbound_number'),
     timezone: text('timezone').notNull().default('Europe/Skopje'),
     /** Languages this business answers in, most-preferred first. */
     languages: text('languages', { mode: 'json' })
@@ -73,7 +73,7 @@ export const businesses = sqliteTable(
   },
   (t) => [
     uniqueIndex('businesses_slug_unique').on(t.slug),
-    uniqueIndex('businesses_twilio_number_unique').on(t.twilioNumber),
+    uniqueIndex('businesses_inbound_number_unique').on(t.inboundNumber),
   ],
 );
 
@@ -187,7 +187,7 @@ export const conversations = sqliteTable(
       .references(() => businesses.id, { onDelete: 'cascade' }),
     /** voice | chat. The ONLY thing that distinguishes the two channels here. */
     channel: text('channel', { enum: CHANNELS }).notNull(),
-    /** Twilio CallSid for voice, widget session id for chat. */
+    /** The carrier's call reference for voice, widget session id for chat. */
     externalId: text('external_id').notNull(),
     /** Caller's number, or an anonymous visitor id for chat. */
     fromIdentifier: text('from_identifier'),

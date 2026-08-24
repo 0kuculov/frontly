@@ -19,7 +19,7 @@ packages/shared    vocabulary both sides share — Language, Channel, working
 packages/core      the database, booking rules, and (Phase 2) the engine.
                    Knows nothing about phones or browsers.
 apps/api           Fastify HTTP + WebSocket server. Channel adapters live
-                   here: Twilio voice (Phase 3), chat socket (Phase 5).
+                   here: Telnyx voice (Phase 3), chat socket (Phase 5).
 apps/web           Next.js owner dashboard + embeddable chat widget.
 ```
 
@@ -46,7 +46,7 @@ Two schema decisions follow from that:
 | Database | Turso (libSQL) + Drizzle ORM 0.45 |
 | LLM | Anthropic Messages API, tool use for every booking action |
 | Speech | Azure Speech (mk-MK, sq-AL, en-US) behind provider interfaces |
-| Telephony | Twilio Programmable Voice + Media Streams |
+| Telephony | Telnyx Call Control v2 + Media Streaming over WebSockets |
 | Dashboard | Next.js 15 App Router, Tailwind 4 |
 | Hosting | Render (api, Frankfurt) + Vercel (web) |
 
@@ -78,7 +78,7 @@ curl http://localhost:8080/health
 }
 ```
 
-Phase 1 boots with **no** Twilio, Azure or Anthropic keys. Those are validated
+Phase 1 boots with **no** Telnyx, Azure or Anthropic keys. Those are validated
 at the point the feature needs them, not at startup, so the foundation is
 runnable before any account exists.
 
@@ -153,7 +153,7 @@ chew on.
    ```
 
 Frankfurt is deliberate: Phase 3 has a 1.5s end-of-speech-to-response budget
-shared between Twilio, Azure and Anthropic, and a US region spends a third of
+shared between Telnyx, Azure and Anthropic, and a US region spends a third of
 it on the round trip alone.
 
 ### Dashboard → Vercel
@@ -169,8 +169,8 @@ Import the repo, set **Root Directory** to `apps/web`, and add
 | Phase | | |
 |---|---|---|
 | 1 | Foundation — monorepo, schema, seed, env, health | **done** |
-| 2 | Conversation engine (`handleTurn`, tools, prompts) | next |
-| 3 | Voice channel (Twilio Media Streams ↔ Azure Speech) | |
+| 2 | Conversation engine (`handleTurn`, tools, prompts) | **done** |
+| 3 | Voice channel (Telnyx Media Streaming ↔ Azure Speech) | **built** |
 | 4 | Owner dashboard | |
 | 5 | Chat channel (embeddable widget) | |
 | 6 | Follow-up (SMS confirmations, reminders, daily summary) | |

@@ -21,7 +21,7 @@ beforeEach(() => {
 });
 
 describe('environment validation', () => {
-  it('boots on Phase 1 config alone — no Twilio, Azure or Anthropic keys', () => {
+  it('boots on Phase 1 config alone — no carrier, Azure or Anthropic keys', () => {
     const env = loadEnv({ ...baseEnv } as NodeJS.ProcessEnv);
     expect(env.NODE_ENV).toBe('development');
     expect(env.PORT).toBe(8080);
@@ -52,26 +52,40 @@ describe('environment validation', () => {
     NODE_ENV: 'production',
   };
 
-  it('deploys to production without PUBLIC_BASE_URL before Twilio exists', () => {
+  it('deploys to production without PUBLIC_BASE_URL before a carrier exists', () => {
     // Phase 1 has no inbound channel, so there are no webhook URLs to build.
     // Demanding one here blocked a deploy over a Phase 3 concern.
     const result = serverEnvSchema.safeParse(productionDb);
     expect(result.success).toBe(true);
   });
 
-  it('demands PUBLIC_BASE_URL once Twilio is configured', () => {
+  it('demands PUBLIC_BASE_URL once the carrier is configured', () => {
     const result = serverEnvSchema.safeParse({
       ...productionDb,
-      TWILIO_ACCOUNT_SID: 'AC_test',
+      TELNYX_API_KEY: 'KEY_test',
+      TELNYX_PUBLIC_KEY: 'pub_test',
     });
     expect(result.success).toBe(false);
     expect(result.error?.issues.some((i) => i.path.includes('PUBLIC_BASE_URL'))).toBe(true);
   });
 
-  it('accepts Twilio configured alongside PUBLIC_BASE_URL', () => {
+  it('refuses to run an unverified webhook endpoint in production', () => {
+    // Without the public key the adapter accepts any POST, and that endpoint
+    // answers phone calls. Fine on a laptop, a bill on a public URL.
     const result = serverEnvSchema.safeParse({
       ...productionDb,
-      TWILIO_ACCOUNT_SID: 'AC_test',
+      TELNYX_API_KEY: 'KEY_test',
+      PUBLIC_BASE_URL: 'https://frontly-api.onrender.com',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((i) => i.path.includes('TELNYX_PUBLIC_KEY'))).toBe(true);
+  });
+
+  it('accepts the carrier configured alongside PUBLIC_BASE_URL', () => {
+    const result = serverEnvSchema.safeParse({
+      ...productionDb,
+      TELNYX_API_KEY: 'KEY_test',
+      TELNYX_PUBLIC_KEY: 'pub_test',
       PUBLIC_BASE_URL: 'https://frontly-api.onrender.com',
     });
     expect(result.success).toBe(true);

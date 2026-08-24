@@ -49,7 +49,7 @@ export async function getBusinessForDialledNumber(
   dialled: string | undefined,
 ): Promise<Business | undefined> {
   if (dialled) {
-    const [match] = await db.select().from(businesses).where(eq(businesses.twilioNumber, dialled));
+    const [match] = await db.select().from(businesses).where(eq(businesses.inboundNumber, dialled));
     if (match) return match;
   }
   const all = await db.select().from(businesses);
@@ -74,7 +74,7 @@ export async function getBusinessContext(
 export interface StartConversationInput {
   businessId: string;
   channel: Channel;
-  /** Twilio CallSid, or the widget session id. */
+  /** The carrier's call reference, or the widget session id. */
   externalId: string;
   fromIdentifier?: string | undefined;
   language?: Language | undefined;
@@ -82,7 +82,7 @@ export interface StartConversationInput {
 }
 
 /**
- * Idempotent by (channel, external_id): a Twilio webhook retry reuses the row
+ * Idempotent by (channel, external_id): a carrier webhook retry reuses the row
  * rather than opening a second conversation for one call.
  */
 export async function startConversation(

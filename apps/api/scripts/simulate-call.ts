@@ -1,6 +1,7 @@
 import {
   AnthropicLanguageModel,
   appointments,
+  conversations,
   createTestDb,
   DEMO_IDS,
   getBusinessContext,
@@ -15,7 +16,7 @@ import { FRAME_BYTES } from '../src/voice/types.js';
  * A whole phone call, without a phone.
  *
  * Real Azure STT, real Claude, real Azure TTS, real mulaw frames paced at
- * 20 ms — everything the live pipeline does except Twilio carrying the bytes.
+ * 20 ms — everything the live pipeline does except Telnyx carrying the bytes.
  * The caller is synthesized with a different voice so the recognizer is
  * hearing genuine speech rather than replayed text.
  *
@@ -35,7 +36,33 @@ if (!key || !process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-const provider = new AzureSpeechProvider({ key, region });
+const azure = new AzureSpeechProvider({ key, region });
+
+/**
+ * Every string that actually reaches the synthesizer, and whether any Latin
+ * survived `sanitizeForSpeech`.
+ *
+ * Checked here rather than on the model's reply because this is the last point
+ * before the audio exists: a token that gets this far is a token the caller
+ * hears spelled out letter by letter, or read in the wrong language.
+ */
+const spokenToAzure: { text: string; latin: string[] }[] = [];
+const LATIN_TOKEN = /[A-Za-z][A-Za-z'-]*/g;
+
+const provider: typeof azure = Object.create(azure) as typeof azure;
+provider.createSynthesizer = () => {
+  const inner = azure.createSynthesizer();
+  return {
+    close: () => inner.close(),
+    synthesize: (request) => {
+      if (request.language === 'mk') {
+        const latin = request.text.match(LATIN_TOKEN) ?? [];
+        spokenToAzure.push({ text: request.text, latin });
+      }
+      return inner.synthesize(request);
+    },
+  };
+};
 /** The caller gets a different voice from the agent. */
 const CALLER_VOICE = { ...DEFAULT_VOICE_CONFIG.mk, voiceName: 'mk-MK-MarijaNeural' };
 
@@ -50,7 +77,8 @@ const bold = (t: string) => `[1m${t}[0m`;
 const dim = (t: string) => `[2m${t}[0m`;
 
 async function synthesizeCaller(text: string): Promise<Buffer> {
-  const tts = provider.createSynthesizer();
+  // Straight to Azure, bypassing the recorder: this is the caller talking.
+  const tts = azure.createSynthesizer();
   const audio = await tts.synthesize({ text, language: 'mk' as Language, profile: CALLER_VOICE });
   tts.close();
   return audio;
@@ -72,7 +100,7 @@ async function main(): Promise<void> {
     staff: context.staff,
     provider,
     model: new AnthropicLanguageModel(),
-    callSid: `CA_sim_${Date.now()}`,
+    callRef: `CA_sim_${Date.now()}`,
     from: '+38970111222',
     logger: {
       info: (payload, message) => {
@@ -116,7 +144,7 @@ async function main(): Promise<void> {
     firstReplyFrameAt = 0;
     lastCallerFrameAt = 0;
 
-    // Feed it exactly as Twilio would: 20 ms per frame, in real time.
+    // Feed it exactly as Telnyx would: 20 ms per frame, in real time.
     for (let offset = 0; offset < audio.length; offset += FRAME_BYTES) {
       session.onMedia(audio.subarray(offset, offset + FRAME_BYTES).toString('base64'));
       await sleep(20);
@@ -130,12 +158,36 @@ async function main(): Promise<void> {
 
   await session.stop('simulation complete');
 
+  // The transcript is the artefact the Phase 4 dashboard reads, and the only
+  // way to see why a turn did not book.
+  const [conversation] = await t.db.select().from(conversations);
+  console.log(bold('\n  Транскрипт'));
+  for (const turn of conversation?.transcript ?? []) {
+    const who = turn.role === 'customer' ? 'Пациент' : 'Фронтли';
+    const tools = 'toolCalls' in turn && turn.toolCalls?.length
+      ? dim(`  [${turn.toolCalls.map((c) => c.name).join(', ')}]`)
+      : '';
+    console.log(`    ${bold(who.padEnd(8))} ${turn.text}${tools}`);
+  }
+
   const booked = await t.db.select().from(appointments);
   console.log(bold('\n  Резултат'));
   console.log(`  термини:      ${booked.length}`);
   for (const row of booked) {
     console.log(`    ${row.customerName} · ${row.startsAt.toISOString()} · ${row.status}`);
   }
+  const leaked = spokenToAzure.filter((s) => s.latin.length > 0);
+  console.log(bold('\n  Latin script reaching Azure'));
+  console.log(`  Macedonian utterances synthesized: ${spokenToAzure.length}`);
+  if (leaked.length === 0) {
+    console.log('  no Latin tokens — sanitizeForSpeech held');
+  } else {
+    for (const row of leaked) {
+      console.log(`    ${row.latin.join(', ')}  in: ${row.text}`);
+    }
+    console.log('  ^ these are read aloud in the wrong language, or spelled out.');
+  }
+
   if (latencies.length > 0) {
     const avg = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length);
     console.log(

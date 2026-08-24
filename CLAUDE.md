@@ -83,6 +83,16 @@ add drizzle to the API.
   fails. The `"pnpm"` key in package.json is NOT read by pnpm 11.
 - **`engines.node` is `>=24 <25`** and overrides Render's `NODE_VERSION`. An
   open `>=22` let a deploy pick up Node 26.
+- **The engine may only offer times `check_availability` returned.** Enforced in
+  `engine/executor.ts` against `state.offeredSlots`, not by the prompt. A single-day
+  lookup returns EVERY free time; only multi-day ranges are sampled — handed a
+  sample, the model tells callers an unlisted time is "unavailable", which is a
+  confident lie about a free slot.
+- **Every reply passes through `sanitizeForSpeech`.** Models reach for markdown
+  bullets when listing options and TTS reads the asterisks aloud.
+- **Live model tests are opt-in** (`FRONTLY_LIVE_TESTS=1`), not merely
+  key-gated — a key is often exported in the shell and `pnpm test` must stay
+  free and fast.
 - Always synthesize speech via **SSML**, never plain text — plain text silently
   drops the prosody rate that makes the agent intelligible on an 8kHz line.
   Voice name and rate are **per-business config**, never constants.
@@ -98,7 +108,7 @@ honest.
 ## Phases
 
 1. Foundation — **done, deployed**
-2. Conversation engine (`handleTurn`, tools, Macedonian prompt) — in progress
+2. Conversation engine (`handleTurn`, tools, Macedonian prompt) — **done**
 3. Voice channel (Twilio Media Streams ↔ Azure Speech)
 4. Owner dashboard
 5. Chat channel (embeddable widget)

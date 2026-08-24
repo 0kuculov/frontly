@@ -12,6 +12,7 @@
     "test": "vitest run",
     "verify:azure": "tsx scripts/verify-azure.ts",
     "simulate:call": "tsx scripts/simulate-call.ts",
+    "check:numbers": "tsx scripts/check-phone-numbers.ts",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

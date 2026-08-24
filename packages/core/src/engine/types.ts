@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Channel, ConversationOutcome, Language } from '@frontly/shared';
+import type { LatinLeak } from './sanitize.js';
 import type { Database } from '../db/client.js';
 import type { Business, Service, StaffMember } from '../db/schema.js';
 
@@ -61,12 +62,46 @@ export interface TurnContext {
   now?: Date;
   /** Guard against a tool loop that never terminates. */
   maxToolIterations?: number;
+  /**
+   * Called when a Macedonian reply contains Latin-script words. The prompt is
+   * supposed to prevent this, so a rising count is the signal that the rule is
+   * decaying and the allowlist needs another entry.
+   */
+  onLatinLeak?: ((leak: LatinLeak) => void) | undefined;
+  /**
+   * Called with each complete sentence as the model produces it, already
+   * sanitised for speech. The voice adapter synthesizes on the first one
+   * rather than waiting for the whole turn — time-to-first-audio is what a
+   * caller perceives, not total turn time.
+   */
+  onSentence?: ((sentence: string) => void) | undefined;
 }
 
 export interface TurnResult {
   reply: string;
   toolCalls: ToolCallRecord[];
   state: ConversationState;
+  timings: TurnTimings;
+}
+
+/**
+ * Per-stage timings, logged by the adapter.
+ *
+ * `toFirstSentenceMs` is the number that matters on a phone call and
+ * `totalMs` is the one that looks bad in a benchmark; they are reported
+ * separately so tuning optimises the right one.
+ */
+export interface TurnTimings {
+  /** Turn start to the first complete sentence being handed to the caller. */
+  toFirstSentenceMs?: number;
+  /** Turn start to the model's first token of any kind. */
+  toFirstTokenMs?: number;
+  /** Total wall time for the turn, including every tool round trip. */
+  totalMs: number;
+  /** Time spent inside executeTool, summed. */
+  toolMs: number;
+  /** Number of model round trips this turn needed. */
+  modelCalls: number;
 }
 
 export interface ModelRequest {
@@ -74,6 +109,12 @@ export interface ModelRequest {
   messages: Anthropic.MessageParam[];
   tools: Anthropic.Tool[];
   maxTokens?: number;
+  /**
+   * Called with each text delta as it arrives. Supplying it switches the model
+   * to streaming, which is what lets the voice adapter start synthesizing the
+   * first sentence while the rest is still being generated.
+   */
+  onTextDelta?: ((delta: string) => void) | undefined;
 }
 
 /**

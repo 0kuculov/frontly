@@ -1,9 +1,13 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import sensible from '@fastify/sensible';
+import websocket from '@fastify/websocket';
 import { createDb, enableForeignKeys, type Database } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
 import { healthRoutes } from './routes/health.js';
+import { voiceRoutes } from './routes/voice.js';
+import type { ISpeechProvider } from './voice/types.js';
 
 export const API_VERSION = '0.1.0';
 
@@ -20,7 +24,15 @@ export interface BuildAppResult {
  * register here as plugins. They may talk to @frontly/core; core never reaches
  * back into this file.
  */
-export async function buildApp(env: ServerEnv): Promise<BuildAppResult> {
+export interface BuildAppOptions {
+  /** Injectable so the voice tests can drive a call with fake speech. */
+  speechProvider?: ISpeechProvider;
+}
+
+export async function buildApp(
+  env: ServerEnv,
+  options: BuildAppOptions = {},
+): Promise<BuildAppResult> {
   const db = createDb({ url: env.DATABASE_URL, authToken: env.DATABASE_AUTH_TOKEN });
   await enableForeignKeys(db);
 
@@ -39,12 +51,27 @@ export async function buildApp(env: ServerEnv): Promise<BuildAppResult> {
   });
 
   await app.register(sensible);
+  // Twilio posts application/x-www-form-urlencoded.
+  await app.register(formbody);
+  await app.register(websocket);
   await app.register(cors, {
     origin: env.APP_ORIGIN,
     credentials: true,
   });
 
   await app.register(healthRoutes, { db, version: API_VERSION });
+
+  // The voice channel needs Azure; without a key the rest of the API still
+  // boots, which is what keeps a partially-configured deploy usable.
+  if (options.speechProvider || env.AZURE_SPEECH_KEY) {
+    await app.register(voiceRoutes, {
+      db,
+      env,
+      ...(options.speechProvider ? { provider: options.speechProvider } : {}),
+    });
+  } else {
+    app.log.warn('AZURE_SPEECH_KEY is not set — the voice channel is disabled');
+  }
 
   app.get('/', async () => ({
     service: 'frontly-api',

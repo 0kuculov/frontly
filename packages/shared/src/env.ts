@@ -47,14 +47,14 @@ const serverEnvShape = z
 
     // --- Phase 2 -------------------------------------------------------
     ANTHROPIC_API_KEY: z.string().optional(),
-    ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+    ANTHROPIC_MODEL: z.string().default('claude-sonnet-5'),
 
     // --- Phase 3 -------------------------------------------------------
     TWILIO_ACCOUNT_SID: z.string().optional(),
     TWILIO_AUTH_TOKEN: z.string().optional(),
     TWILIO_PHONE_NUMBER: z.string().optional(),
     AZURE_SPEECH_KEY: z.string().optional(),
-    AZURE_SPEECH_REGION: z.string().default('westeurope'),
+    AZURE_SPEECH_REGION: z.string().default('italynorth'),
 
     // --- Phase 4 -------------------------------------------------------
     AUTH_SECRET: z.string().min(32).optional(),

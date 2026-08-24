@@ -57,7 +57,7 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL
-        value: claude-sonnet-4-6
+        value: claude-sonnet-5
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN
@@ -67,7 +67,7 @@ services:
       - key: AZURE_SPEECH_KEY
         sync: false
       - key: AZURE_SPEECH_REGION
-        value: westeurope
+        value: italynorth
       - key: AUTH_SECRET
         generateValue: true
       - key: DEMO_RESET_TOKEN

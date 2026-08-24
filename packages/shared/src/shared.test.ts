@@ -25,7 +25,7 @@ describe('environment validation', () => {
     const env = loadEnv({ ...baseEnv } as NodeJS.ProcessEnv);
     expect(env.NODE_ENV).toBe('development');
     expect(env.PORT).toBe(8080);
-    expect(env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-sonnet-5');
   });
 
   it('refuses a file: database in production', () => {

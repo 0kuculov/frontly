@@ -6,7 +6,7 @@ import { createTestDb } from '../src/db/testing.js';
 import { fromZonedWallClock } from '../src/time/zone.js';
 import { handleTurn } from '../src/engine/handle-turn.js';
 import { AnthropicLanguageModel, ScriptedLanguageModel } from '../src/engine/model.js';
-import { emptyConversationState, type ILanguageModel, type TurnContext } from '../src/engine/types.js';
+import { emptyConversationState, type TurnContext } from '../src/engine/types.js';
 
 /**
  * Drives a whole booking conversation against the real model and prints the
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   const svc = await db.select().from(services).where(eq(services.businessId, DEMO_IDS.business));
   const stf = await db.select().from(staff).where(eq(staff.businessId, DEMO_IDS.business));
 
-  const model: ILanguageModel = new AnthropicLanguageModel();
+  const model = new AnthropicLanguageModel();
   void ScriptedLanguageModel; // kept importable for the test suite
 
   const ctx: TurnContext = {
@@ -69,6 +69,12 @@ async function main(): Promise<void> {
     customerPhone: '+38970111222',
     state: emptyConversationState('mk'),
     now: NOW,
+    onLatinLeak: (leak) => {
+      console.log(
+        dim(`             ⚠ latin leak  converted=${JSON.stringify(leak.converted)} ` +
+            `unconverted=${JSON.stringify(leak.unconverted)}`),
+      );
+    },
   };
 
   console.log(bold(`\n  ${business.name} — демо повик`));

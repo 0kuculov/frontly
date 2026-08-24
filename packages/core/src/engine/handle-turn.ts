@@ -2,9 +2,10 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { Language } from '@frontly/shared';
 import { executeTool } from './executor.js';
 import { buildSystemPrompt } from './prompt.js';
-import { sanitizeForSpeech } from './sanitize.js';
+import { protectedTermsFor, sanitizeForSpeech, type SanitizeOptions } from './sanitize.js';
+import { SentenceSplitter } from './sentences.js';
 import { buildTools, type BuildToolsOptions } from './tools.js';
-import type { ToolCallRecord, TurnContext, TurnResult } from './types.js';
+import type { ToolCallRecord, TurnContext, TurnResult, TurnTimings } from './types.js';
 
 /**
  * One turn of conversation, with no channel attached.
@@ -46,6 +47,12 @@ export async function handleTurn(
   const maxIterations = ctx.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const toolCalls: ToolCallRecord[] = [];
 
+  const turnStartedAt = Date.now();
+  let firstTokenAt: number | undefined;
+  let firstSentenceAt: number | undefined;
+  let toolMs = 0;
+  let modelCalls = 0;
+
   const system = buildSystemPrompt({
     business: ctx.business,
     services: ctx.services,
@@ -56,6 +63,18 @@ export async function handleTurn(
   });
   const tools = buildTools(options);
 
+  // Proper nouns this clinic uses, so the script pass never rewrites them.
+  const protectedTerms = protectedTermsFor({
+    business: ctx.business,
+    services: ctx.services,
+    staff: ctx.staff,
+  });
+  const speech = {
+    language: ctx.state.language,
+    protectedTerms,
+    onLatinLeak: ctx.onLatinLeak,
+  };
+
   const messages: Anthropic.MessageParam[] = [
     ...ctx.state.messages,
     { role: 'user', content: userMessage },
@@ -64,13 +83,49 @@ export async function handleTurn(
   let reply = '';
   let completed = false;
 
+  /**
+   * Sentence-at-a-time delivery.
+   *
+   * Only wired up when the adapter asks for it. The voice channel does; chat
+   * does not, and pays nothing for the machinery.
+   */
+  const emitSentence = (raw: string): void => {
+    if (!ctx.onSentence) return;
+    const clean = sanitizeForSpeech(raw, speech);
+    if (!clean) return;
+    firstSentenceAt ??= Date.now();
+    ctx.onSentence(clean);
+  };
+
+  const makeDeltaHandler = (splitter: SentenceSplitter) =>
+    ctx.onSentence
+      ? (delta: string): void => {
+          firstTokenAt ??= Date.now();
+          for (const sentence of splitter.push(delta)) emitSentence(sentence);
+        }
+      : undefined;
+
   try {
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-      const response = await ctx.model.complete({ system, messages, tools });
+      // One splitter per model call: a message's text is complete when the
+      // call returns, so the tail must not leak into the next iteration.
+      const splitter = new SentenceSplitter();
+
+      modelCalls++;
+      const response = await ctx.model.complete({
+        system,
+        messages,
+        tools,
+        onTextDelta: makeDeltaHandler(splitter),
+      });
+
+      // Anything after the last full stop is still speakable.
+      const tail = splitter.flush();
+      if (tail) emitSentence(tail);
 
       messages.push({ role: 'assistant', content: response.content });
 
-      const spoken = textOf(response.content);
+      const spoken = textOf(response.content, speech);
 
       if (response.stop_reason !== 'tool_use') {
         reply = spoken;
@@ -90,6 +145,7 @@ export async function handleTurn(
         const startedAt = Date.now();
         const result = await executeTool(block.name, block.input, ctx);
         const durationMs = Date.now() - startedAt;
+        toolMs += durationMs;
 
         toolCalls.push({
           name: block.name,
@@ -140,6 +196,7 @@ export async function handleTurn(
       reply,
       toolCalls,
       state: { ...ctx.state, messages, turnCount: ctx.state.turnCount + 1 },
+      timings: buildTimings(),
     };
   }
 
@@ -156,16 +213,28 @@ export async function handleTurn(
   };
 
   void conversationId; // Persistence is the adapter's job; see apps/api.
-  return { reply, toolCalls, state };
+  return { reply, toolCalls, state, timings: buildTimings() };
+
+  function buildTimings(): TurnTimings {
+    return {
+      ...(firstSentenceAt !== undefined
+        ? { toFirstSentenceMs: firstSentenceAt - turnStartedAt }
+        : {}),
+      ...(firstTokenAt !== undefined ? { toFirstTokenMs: firstTokenAt - turnStartedAt } : {}),
+      totalMs: Date.now() - turnStartedAt,
+      toolMs,
+      modelCalls,
+    };
+  }
 }
 
-function textOf(content: Anthropic.ContentBlock[]): string {
+function textOf(content: Anthropic.ContentBlock[], options: SanitizeOptions): string {
   const raw = content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
     .map((block) => block.text)
     .join(' ');
   // Everything the caller hears goes through the speech sanitiser.
-  return sanitizeForSpeech(raw);
+  return sanitizeForSpeech(raw, options);
 }
 
 function describeToolError(output: unknown): string {

@@ -93,6 +93,21 @@ add drizzle to the API.
 - **Live model tests are opt-in** (`FRONTLY_LIVE_TESTS=1`), not merely
   key-gated — a key is often exported in the shell and `pnpm test` must stay
   free and fast.
+- **`ANTHROPIC_MODEL` must be read, not assumed.** It was declared in the env
+  schema and consumed by nobody for all of Phase 2 — every call silently used a
+  hardcoded constant. `resolveModelId()` is the only place that decides.
+- **Time-to-first-token dominates voice latency**, not sentence length. Measured
+  on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
+  fix a slow first token — only a faster model, a shorter system prompt, or a
+  cache hit can. `pnpm --filter @frontly/core bench` prints the split.
+- **Azure STT returns no confidence unless `OutputFormat.Detailed` is set.**
+  Without it every result scores 1.0 and the low-confidence path can never fire.
+- **Azure's recognizer drops audio written before `startContinuousRecognitionAsync`
+  resolves** — which is exactly the caller's opening words and the sample
+  language detection runs on. `ISpeechToText.ready` exists for this.
+- **An utterance arriving mid-turn must be queued, not dropped.** A caller who
+  confirms while the agent is still thinking was silently ignored, and the
+  booking never happened.
 - Always synthesize speech via **SSML**, never plain text — plain text silently
   drops the prosody rate that makes the agent intelligible on an 8kHz line.
   Voice name and rate are **per-business config**, never constants.
@@ -109,7 +124,7 @@ honest.
 
 1. Foundation — **done, deployed**
 2. Conversation engine (`handleTurn`, tools, Macedonian prompt) — **done**
-3. Voice channel (Twilio Media Streams ↔ Azure Speech)
+3. Voice channel — **built, unverified on a real call** (no Twilio number yet)
 4. Owner dashboard
 5. Chat channel (embeddable widget)
 6. Follow-up (SMS confirmation, reminder, daily summary)

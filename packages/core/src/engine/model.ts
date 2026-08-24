@@ -6,16 +6,18 @@ import type { ILanguageModel, ModelRequest } from './types.js';
  *
  * Two deliberate choices, both driven by Phase 3's latency budget:
  *
- *  - No `thinking`. On Sonnet 4.6 omitting the parameter means the model does
- *    not think before answering. Booking a dental appointment is not a
- *    reasoning-heavy task, and the whole end-of-speech-to-audio budget is
- *    1.5 seconds shared with STT and TTS. Thinking would spend most of it.
+ *  - No `thinking`. Booking a dental appointment is not a reasoning-heavy
+ *    task, and the whole end-of-speech-to-audio budget is ~1.5 seconds shared
+ *    with STT and TTS. Thinking would spend most of it.
+ *
+ *  - Streaming whenever a delta callback is supplied, so the voice adapter can
+ *    synthesize sentence one while sentence two is still being written.
  *
  *  - Small `max_tokens`. Replies are one or two spoken sentences; a large
  *    ceiling only buys the chance to generate a monologue nobody wants to hear.
  */
 
-export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-sonnet-5';
 export const DEFAULT_MAX_TOKENS = 1024;
 
 export interface AnthropicLanguageModelOptions {
@@ -26,21 +28,53 @@ export interface AnthropicLanguageModelOptions {
   client?: Anthropic;
 }
 
+/**
+ * Which model to talk to, most explicit wins.
+ *
+ * ANTHROPIC_MODEL used to be declared in the env schema and read by nobody:
+ * every caller constructed the model with no arguments, so the constant below
+ * silently won and changing the environment variable did nothing at all. A
+ * config value that is documented but not wired up is worse than no config
+ * value, because it is believed.
+ */
+export function resolveModelId(explicit?: string): string {
+  const fromEnv = process.env.ANTHROPIC_MODEL?.trim();
+  return explicit ?? (fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_MODEL);
+}
+
 export class AnthropicLanguageModel implements ILanguageModel {
   private readonly client: Anthropic;
-  private readonly model: string;
+  /** Readable so adapters can log which model actually answered a call. */
+  public readonly model: string;
   private readonly maxTokens: number;
 
   constructor(options: AnthropicLanguageModelOptions = {}) {
     this.client =
       options.client ??
       new Anthropic(options.apiKey ? { apiKey: options.apiKey } : {});
-    this.model = options.model ?? DEFAULT_MODEL;
+    this.model = resolveModelId(options.model);
     this.maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
   }
 
   async complete(request: ModelRequest): Promise<Anthropic.Message> {
-    return this.client.messages.create({
+    const params = this.buildParams(request);
+
+    if (!request.onTextDelta) {
+      return this.client.messages.create(params);
+    }
+
+    /**
+     * Streaming path. The deltas are what the voice adapter turns into early
+     * audio; finalMessage() still yields the complete Message, so stop_reason
+     * and tool_use blocks are handled exactly as in the non-streaming path.
+     */
+    const stream = this.client.messages.stream(params);
+    stream.on('text', (delta: string) => request.onTextDelta?.(delta));
+    return stream.finalMessage();
+  }
+
+  private buildParams(request: ModelRequest): Anthropic.MessageCreateParamsNonStreaming {
+    return {
       model: this.model,
       max_tokens: request.maxTokens ?? this.maxTokens,
       // Array form so the stable per-business prefix (tools + system) can be
@@ -55,7 +89,7 @@ export class AnthropicLanguageModel implements ILanguageModel {
       ],
       tools: request.tools,
       messages: request.messages,
-    });
+    };
   }
 }
 
@@ -86,6 +120,17 @@ export class ScriptedLanguageModel implements ILanguageModel {
           'The engine asked the model more times than the test expected.',
       );
     }
+
+    // Replay the text as deltas so the streaming path is exercised by the
+    // deterministic suite rather than only in production. Word-at-a-time,
+    // because a single delta would hide boundary bugs in the splitter.
+    if (request.onTextDelta) {
+      for (const block of next.content) {
+        if (block.type !== 'text') continue;
+        for (const chunk of block.text.split(/(?<=\s)/)) request.onTextDelta(chunk);
+      }
+    }
+
     return next;
   }
 

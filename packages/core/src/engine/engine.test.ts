@@ -15,8 +15,15 @@ import { createTestDb, type TestDatabase } from '../db/testing.js';
 import { bookAppointment } from '../booking/booking.js';
 import { fromZonedWallClock } from '../time/zone.js';
 import { handleTurn } from './handle-turn.js';
-import { ScriptedLanguageModel, scriptedText, scriptedToolUse } from './model.js';
-import { sanitizeForSpeech } from './sanitize.js';
+import {
+  AnthropicLanguageModel,
+  DEFAULT_MODEL,
+  resolveModelId,
+  ScriptedLanguageModel,
+  scriptedText,
+  scriptedToolUse,
+} from './model.js';
+import { sanitizeForSpeech, type LatinLeak } from './sanitize.js';
 import { buildSystemPrompt } from './prompt.js';
 import { emptyConversationState, type ILanguageModel, type TurnContext } from './types.js';
 
@@ -407,10 +414,118 @@ describe('speech safety', () => {
     expect(sanitizeForSpeech(plain)).toBe(plain);
   });
 
+  it('converts a Latin leak and reports it, without touching proper nouns', async () => {
+    // End to end: the clinic's own names come from the DB via handleTurn, so a
+    // Latin-branded service name must survive while "ime" is rewritten.
+    const leaks: LatinLeak[] = [];
+    const model = new ScriptedLanguageModel([
+      scriptedText('Закажано на ime Марко, услуга Dental check-up.'),
+    ]);
+
+    const result = await handleTurn(
+      'conv_latin',
+      'Потврди.',
+      makeCtx(model, { onLatinLeak: (leak) => leaks.push(leak) }),
+    );
+
+    expect(result.reply).toContain('на име Марко');
+    expect(result.reply).toContain('Dental check-up');
+    expect(leaks).toHaveLength(1);
+    expect(leaks[0]!.converted).toEqual(['ime']);
+  });
+
   it('runs on every reply the engine returns', async () => {
     const model = new ScriptedLanguageModel([scriptedText('- **Готово**\n- Утре во десет')]);
     const result = await handleTurn('conv_md', 'Добро.', makeCtx(model));
     expect(result.reply).not.toMatch(/[*_`\n]/);
     expect(result.reply).toBe('Готово Утре во десет');
+  });
+});
+
+describe('model selection', () => {
+  const original = process.env.ANTHROPIC_MODEL;
+  afterAll(() => {
+    if (original === undefined) delete process.env.ANTHROPIC_MODEL;
+    else process.env.ANTHROPIC_MODEL = original;
+  });
+
+  it('reads ANTHROPIC_MODEL from the environment', () => {
+    // Regression: this variable was declared in the env schema and read by
+    // nobody, so every call silently used the hardcoded constant instead.
+    process.env.ANTHROPIC_MODEL = 'claude-opus-5';
+    expect(resolveModelId()).toBe('claude-opus-5');
+    expect(new AnthropicLanguageModel({ apiKey: 'sk-test' }).model).toBe('claude-opus-5');
+  });
+
+  it('lets an explicit argument win over the environment', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-opus-5';
+    expect(resolveModelId('claude-haiku-4-5')).toBe('claude-haiku-4-5');
+  });
+
+  it('falls back to Sonnet 5 when nothing is set', () => {
+    delete process.env.ANTHROPIC_MODEL;
+    expect(resolveModelId()).toBe(DEFAULT_MODEL);
+    expect(DEFAULT_MODEL).toBe('claude-sonnet-5');
+  });
+
+  it('ignores a blank environment value', () => {
+    process.env.ANTHROPIC_MODEL = '   ';
+    expect(resolveModelId()).toBe(DEFAULT_MODEL);
+  });
+});
+
+describe('streaming for time-to-first-audio', () => {
+  it('emits each sentence as it completes, before the turn finishes', async () => {
+    const model = new ScriptedLanguageModel([
+      scriptedText('Слободно е утре во десет и половина наутро. Да го закажам?'),
+    ]);
+
+    const sentences: string[] = [];
+    const result = await handleTurn(
+      'conv_stream',
+      'Што имате утре?',
+      makeCtx(model, { onSentence: (s) => sentences.push(s) }),
+    );
+
+    expect(sentences).toEqual([
+      'Слободно е утре во десет и половина наутро.',
+      'Да го закажам?',
+    ]);
+    expect(result.reply).toContain('Слободно е утре');
+  });
+
+  it('sanitises each sentence on the way out, not just the final reply', async () => {
+    const model = new ScriptedLanguageModel([scriptedText('- **Готово.** Закажано на ime Марко.')]);
+    const sentences: string[] = [];
+    await handleTurn('conv_stream2', 'Ок.', makeCtx(model, { onSentence: (s) => sentences.push(s) }));
+
+    expect(sentences.join(' ')).not.toMatch(/[*_]/);
+    expect(sentences.join(' ')).toContain('на име Марко');
+  });
+
+  it('reports time-to-first-sentence separately from total turn time', async () => {
+    const model = new ScriptedLanguageModel([
+      scriptedToolUse([{ name: 'check_availability', input: checkTomorrow }]),
+      scriptedText('Имаме слободно утре наутро. Кое време ви одговара?'),
+    ]);
+
+    const result = await handleTurn(
+      'conv_timing',
+      'Што имате утре?',
+      makeCtx(model, { onSentence: () => {} }),
+    );
+
+    // What the caller perceives vs what a benchmark measures.
+    expect(result.timings.toFirstSentenceMs).toBeDefined();
+    expect(result.timings.totalMs).toBeGreaterThanOrEqual(result.timings.toFirstSentenceMs!);
+    expect(result.timings.modelCalls).toBe(2);
+    expect(result.timings.toolMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('costs nothing when the adapter does not ask for sentences', async () => {
+    const model = new ScriptedLanguageModel([scriptedText('Добро.')]);
+    const result = await handleTurn('conv_nostream', 'Ок.', makeCtx(model));
+    expect(result.timings.toFirstSentenceMs).toBeUndefined();
+    expect(result.timings.totalMs).toBeGreaterThanOrEqual(0);
   });
 });

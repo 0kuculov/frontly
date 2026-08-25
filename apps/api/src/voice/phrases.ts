@@ -9,11 +9,40 @@ import type { Language } from '@frontly/shared';
  * synthesized ahead of time, since they never change.
  */
 
-/** Said when STT is unsure or Azure failed. Never silence, never garbage. */
-export const DID_NOT_CATCH: Record<Language, string> = {
-  mk: 'Извинете, не ве слушнав добро. Може ли да повторите, или да ве поврзам со колега?',
-  sq: 'Më falni, nuk ju dëgjova mirë. A mund ta përsërisni, apo t’ju lidh me një koleg?',
-  en: 'Sorry, I did not catch that. Could you repeat it, or shall I put you through to a colleague?',
+/**
+ * Said when STT is unsure or Azure failed. Never silence, never garbage.
+ *
+ * Escalating, like the reprompts, and for the same reason: the caller hearing
+ * the identical apology twice is what makes a bad line feel like a loop. The
+ * second one asks for less, because the first attempt at the full question is
+ * evidently not getting through.
+ */
+export const DID_NOT_CATCH: Record<Language, readonly string[]> = {
+  mk: [
+    'Извинете, не ве слушнав добро. Може ли да повторите?',
+    'Сè уште не ве слушам добро. Кажете ми само датумот и времето, полека.',
+  ],
+  sq: [
+    'Më falni, nuk ju dëgjova mirë. A mund ta përsërisni?',
+    'Ende nuk ju dëgjoj mirë. Më thoni vetëm datën dhe orën, ngadalë.',
+  ],
+  en: [
+    'Sorry, I did not catch that. Could you repeat it?',
+    'I still cannot hear you clearly. Just the day and the time, slowly.',
+  ],
+};
+
+/**
+ * Said when the line is genuinely too poor to continue.
+ *
+ * A caller the system cannot hear gets a way out rather than another attempt
+ * at the same question. Spoken before the transfer or callback offer, so the
+ * caller knows why the call is ending.
+ */
+export const CANNOT_HEAR: Record<Language, string> = {
+  mk: 'Извинете, врската е слаба и не можам да ве слушнам добро.',
+  sq: 'Më falni, lidhja është e dobët dhe nuk po ju dëgjoj mirë.',
+  en: 'Sorry, the line is poor and I cannot hear you clearly.',
 };
 
 /**
@@ -76,7 +105,8 @@ export const FILLERS: Record<Language, readonly string[]> = {
 /** Every fixed line, for pre-synthesis. The greeting is added per business. */
 export function cacheablePhrases(language: Language): string[] {
   return [
-    DID_NOT_CATCH[language],
+    ...DID_NOT_CATCH[language],
+    CANNOT_HEAR[language],
     ...REPROMPTS[language],
     TRANSFER_UNAVAILABLE[language],
     CALLBACK_OFFER[language],

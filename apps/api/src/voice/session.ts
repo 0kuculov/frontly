@@ -1,6 +1,7 @@
 import {
   emptyConversationState,
   handleTurn,
+  recognitionPhrases,
   renderGreeting,
   startConversation,
   updateConversation,
@@ -24,6 +25,7 @@ import {
 import { PlaybackQueue, type PlaybackSink } from './audio.js';
 import {
   CALLBACK_OFFER,
+  CANNOT_HEAR,
   DID_NOT_CATCH,
   FILLERS,
   REPROMPTS,
@@ -108,7 +110,6 @@ export interface CallSessionOptions {
  */
 const DEFAULT_FILLER_AFTER_MS = 800;
 
-const DEFAULT_MIN_CONFIDENCE = 0.4;
 
 export class CallSession {
   private readonly startedAt = Date.now();
@@ -175,6 +176,15 @@ export class CallSession {
     this.stt = this.options.provider.createRecognizer({
       languages,
       recognition: this.recognition,
+      // The clinic's own vocabulary: service names, staff, days, booking
+      // phrases. Built from its database record, so a different clinic biases
+      // towards different words with no code change.
+      phrases: recognitionPhrases({
+        business: this.options.business,
+        services: this.options.services,
+        staff: this.options.staff,
+        language: this.language,
+      }),
       // Straight into the call log: the text, and the silence that ended it.
       onDiagnostic: (payload, message) =>
         this.options.logger.info({ callRef: this.options.callRef, ...payload }, message),
@@ -354,17 +364,44 @@ export class CallSession {
       );
     }
 
-    const minConfidence = this.options.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
+    const minConfidence = this.options.minConfidence ?? this.recognition.minConfidence;
     if (result.confidence < minConfidence) {
       this.lowConfidenceStreak++;
       this.options.logger.warn(
-        { callRef: this.options.callRef, confidence: result.confidence, text: result.text },
+        {
+          callRef: this.options.callRef,
+          confidence: result.confidence,
+          minConfidence,
+          text: result.text,
+          streak: this.lowConfidenceStreak,
+          of: this.recognition.maxLowConfidenceTurns,
+        },
         'low confidence transcription',
       );
       this.record({ role: 'customer', text: result.text, confidence: result.confidence });
-      await this.speak(DID_NOT_CATCH[this.language]);
-      // Two in a row means the line is bad, not that the caller mumbled.
-      if (this.lowConfidenceStreak >= 2) this.state.outcome ??= 'transferred';
+
+      /**
+       * Stop retrying a question the line cannot carry.
+       *
+       * This branch used to speak the same apology on every low-confidence
+       * result, forever, with nothing capping it — `lowConfidenceStreak >= 2`
+       * set an outcome field and changed no behaviour at all. On a poor line
+       * every utterance lands here, so the caller heard one identical sentence
+       * over and over. It is not the reprompt timer, which is why tuning the
+       * reprompt delay had no effect on it.
+       */
+      if (this.lowConfidenceStreak >= this.recognition.maxLowConfidenceTurns) {
+        this.options.logger.warn(
+          { callRef: this.options.callRef, streak: this.lowConfidenceStreak },
+          'giving up on a line we cannot hear — offering a way out',
+        );
+        this.state.outcome ??= 'transferred';
+        await this.speak(CANNOT_HEAR[this.language]);
+        await this.handOver();
+        return;
+      }
+
+      await this.speak(this.didNotCatchText());
       this.startSilenceWatch();
       return;
     }
@@ -392,7 +429,7 @@ export class CallSession {
     );
     // Never fail silently: say something and offer a human.
     this.state.outcome ??= 'transferred';
-    await this.speak(DID_NOT_CATCH[this.language]);
+    await this.speak(this.didNotCatchText());
     this.startSilenceWatch();
   }
 
@@ -558,7 +595,7 @@ export class CallSession {
         { callRef: this.options.callRef, err: error instanceof Error ? error.message : error },
         'turn failed',
       );
-      await this.speak(DID_NOT_CATCH[this.language]);
+      await this.speak(this.didNotCatchText());
     } finally {
       clearTimeout(filler);
       this.busy = false;
@@ -605,6 +642,16 @@ export class CallSession {
    * what turns "the agent is checking in" into "the agent is stuck in a loop".
    * Clamps to the last variant so a higher maxReprompts still says something.
    */
+  /**
+   * The next apology, escalating. Same reasoning as the reprompts: the second
+   * identical sentence is what makes a bad line sound like a stuck machine.
+   */
+  private didNotCatchText(): string {
+    const variants = DID_NOT_CATCH[this.language];
+    const index = Math.min(Math.max(0, this.lowConfidenceStreak - 1), variants.length - 1);
+    return variants[index]!;
+  }
+
   private repromptText(): string {
     const variants = REPROMPTS[this.language];
     const index = Math.min(this.silencePrompts - 1, variants.length - 1);

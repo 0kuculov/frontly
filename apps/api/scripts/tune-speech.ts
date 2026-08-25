@@ -29,6 +29,9 @@ import {
  *   pnpm --filter @frontly/api tune:speech --silence 1100
  *   pnpm --filter @frontly/api tune:speech --barge-in 500 --barge-in-chars 3
  *   pnpm --filter @frontly/api tune:speech --strategy Semantic
+ *   pnpm --filter @frontly/api tune:speech --reprompt-after 6000
+ *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.8
+ *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
  *   pnpm --filter @frontly/api tune:speech --reset
  */
 
@@ -75,12 +78,22 @@ async function main(): Promise<void> {
   const bargeInMs = flag('barge-in');
   const bargeInChars = flag('barge-in-chars');
   const maximum = flag('max-phrase');
+  const reprompt = flag('reprompt-after');
+  const maxReprompts = flag('max-reprompts');
+  const phraseWeight = flag('phrase-weight');
+  const minConfidence = flag('min-confidence');
+  const maxLowConfidence = flag('max-low-confidence');
 
   if (silence !== undefined) changes.segmentationSilenceMs = Number(silence);
   if (strategy !== undefined) changes.segmentationStrategy = strategy;
   if (bargeInMs !== undefined) changes.bargeInMs = Number(bargeInMs);
   if (bargeInChars !== undefined) changes.bargeInMinChars = Number(bargeInChars);
   if (maximum !== undefined) changes.segmentationMaximumMs = Number(maximum);
+  if (reprompt !== undefined) changes.repromptAfterMs = Number(reprompt);
+  if (maxReprompts !== undefined) changes.maxReprompts = Number(maxReprompts);
+  if (phraseWeight !== undefined) changes.phraseListWeight = Number(phraseWeight);
+  if (minConfidence !== undefined) changes.minConfidence = Number(minConfidence);
+  if (maxLowConfidence !== undefined) changes.maxLowConfidenceTurns = Number(maxLowConfidence);
 
   const resetting = args.includes('--reset');
 

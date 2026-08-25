@@ -8,6 +8,7 @@ import {
   createTestDb,
   DEMO_IDS,
   getBusinessContext,
+  recognitionPhrases,
   renderGreeting,
   ScriptedLanguageModel,
   scriptedText,
@@ -28,7 +29,7 @@ import {
 } from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
-import { FILLERS, REPROMPTS } from './phrases.js';
+import { CANNOT_HEAR, DID_NOT_CATCH, FILLERS, REPROMPTS } from './phrases.js';
 import { phraseRequest, SpeechCache } from './speech-cache.js';
 import { decodeClientState, encodeClientState, TelnyxProvider, telnyxMediaProtocol } from './telnyx.js';
 import { warmBusiness, warmRequests } from './warm.js';
@@ -1177,6 +1178,112 @@ describe('reprompt timing', () => {
      */
     const reprompts = h.logs.filter((l) => l.message === 'reprompting after silence');
     expect(reprompts).toHaveLength(0);
+    await h.session.stop('test');
+  });
+});
+
+// --- recognition quality -----------------------------------------------------
+
+describe('recognition vocabulary', () => {
+  it('biases the recognizer towards this clinic own words', async () => {
+    // A receptionist for one dental clinic hears a tiny vocabulary. Telling
+    // Azure which few hundred words actually occur is the biggest accuracy
+    // lever available over an 8 kHz line without changing provider.
+    const h = makeSession(new ScriptedLanguageModel([]));
+    await h.session.start();
+
+    const phrases = h.provider.recognizerOptions?.phrases ?? [];
+    expect(phrases).toContain('Дентал Охрид');
+    expect(phrases).toContain('Стоматолошки преглед');
+    expect(phrases.some((p) => p.includes('Смилевска'))).toBe(true);
+    expect(phrases).toContain('вторник');
+    expect(phrases).toContain('сакам да закажам');
+    // Azure documents 500 as the ceiling; past that Custom Speech is the tool.
+    expect(phrases.length).toBeLessThanOrEqual(500);
+
+    await h.session.stop('test');
+  });
+
+  it('splits names so a caller who says only the surname is still heard', () => {
+    const phrases = recognitionPhrases({ ...context, language: 'mk' as Language });
+    expect(phrases).toContain('Ана');
+    expect(phrases).toContain('Смилевска');
+    // The honorific on its own is noise, not vocabulary.
+    expect(phrases).not.toContain('д-р');
+  });
+});
+
+describe('a line we cannot hear', () => {
+  const deaf = { ...DEFAULT_RECOGNITION_CONFIG, maxLowConfidenceTurns: 2 };
+
+  it('stops retrying the same question and offers a way out', async () => {
+    /**
+     * This is what produced the repeats. Every low-confidence result spoke the
+     * same apology, forever — the streak counter set an outcome field and
+     * changed no behaviour. It is not the reprompt timer, which is why tuning
+     * the reprompt delay had no effect on it.
+     */
+    const handed: string[] = [];
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: deaf,
+      silenceMs: 5000,
+      onTransfer: async (to) => void handed.push(to),
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('шшш', 0.2, 'mk');
+    await settle(60);
+    h.provider.stt!.say('шшш', 0.15, 'mk');
+    await settle(120);
+
+    const said = h.provider.tts.spoken.map((s) => s.text);
+    // The apology escalates rather than repeating verbatim.
+    expect(said[0]).toBe(DID_NOT_CATCH.mk[0]);
+    expect(said).toContain(CANNOT_HEAR.mk);
+    expect(handed).toEqual([context.business.ownerMobile]);
+    expect(
+      h.logs.some((l) => l.message === 'giving up on a line we cannot hear — offering a way out'),
+    ).toBe(true);
+  });
+
+  it('recovers silently when the caller comes back clearly', async () => {
+    const h = makeSession(new ScriptedLanguageModel([scriptedText('Секако.')]), {
+      recognition: deaf,
+      silenceMs: 5000,
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('шшш', 0.2, 'mk');
+    await settle(60);
+    h.provider.stt!.say('Сакам термин утре.', 0.95, 'mk');
+    await settle(120);
+
+    // One apology, then a normal turn — the streak resets.
+    expect(h.provider.tts.spoken.map((s) => s.text)).not.toContain(CANNOT_HEAR.mk);
+    expect(h.logs.filter((l) => l.message === 'turn started')).toHaveLength(1);
+    await h.session.stop('test');
+  });
+
+  it('logs the confidence on every recognition, accepted or not', async () => {
+    const h = makeSession(new ScriptedLanguageModel([scriptedText('Добро.')]), {
+      recognition: deaf,
+      silenceMs: 5000,
+    });
+    await h.session.start();
+
+    h.provider.stt!.say('нејасно', 0.25, 'mk');
+    await settle(60);
+    h.provider.stt!.say('Сакам термин.', 0.91, 'mk');
+    await settle(120);
+
+    const low = h.logs.find((l) => l.message === 'low confidence transcription');
+    const good = h.logs.find((l) => l.message === 'caller said');
+    // Low-confidence-but-right and confidently-wrong are different problems,
+    // and only the score tells them apart.
+    expect(low?.payload).toMatchObject({ confidence: 0.25, minConfidence: 0.4 });
+    expect(good?.payload).toMatchObject({ confidence: 0.91 });
     await h.session.stop('test');
   });
 });

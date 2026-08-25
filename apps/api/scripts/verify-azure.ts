@@ -1,4 +1,10 @@
-import { loadRootEnv } from '@frontly/core';
+import {
+  createTestDb,
+  DEMO_IDS,
+  getBusinessContext,
+  loadRootEnv,
+  recognitionPhrases,
+} from '@frontly/core';
 import { DEFAULT_VOICE_CONFIG, type Language } from '@frontly/shared';
 import { AzureSpeechProvider } from '../src/voice/azure.js';
 import { TELEPHONY_SAMPLE_RATE, type TranscriptionResult } from '../src/voice/types.js';
@@ -45,7 +51,11 @@ async function synthesize(language: Language, text: string, breakAfterFirst: boo
   return { audio, ms };
 }
 
-async function recognize(audio: Buffer, languages: Language[]): Promise<TranscriptionResult | undefined> {
+async function recognize(
+  audio: Buffer,
+  languages: Language[],
+  phrases?: string[],
+): Promise<TranscriptionResult | undefined> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r?: TranscriptionResult) => {
@@ -56,6 +66,7 @@ async function recognize(audio: Buffer, languages: Language[]): Promise<Transcri
 
     const stt = provider.createRecognizer({
       languages,
+      ...(phrases ? { phrases } : {}),
       handlers: {
         onFinal: (result) => finish(result),
         onError: (error) => {
@@ -85,8 +96,21 @@ async function recognize(audio: Buffer, languages: Language[]): Promise<Transcri
   });
 }
 
+/** The clinic's own vocabulary, loaded once from the seeded database. */
+let vocabulary: Partial<Record<Language, string[]>> = {};
+
 async function main(): Promise<void> {
   console.log(`\nAzure Speech — region ${region}\n`);
+
+  const scratch = await createTestDb();
+  const context = (await getBusinessContext(scratch.db, DEMO_IDS.business))!;
+  vocabulary = {
+    mk: recognitionPhrases({ ...context, language: 'mk' }),
+    en: recognitionPhrases({ ...context, language: 'en' }),
+  };
+  console.log(`phrase list: ${vocabulary.mk?.length ?? 0} phrases for mk
+`);
+  scratch.cleanup();
 
   for (const { language, text } of PHRASES) {
     const profile = DEFAULT_VOICE_CONFIG[language];
@@ -102,6 +126,22 @@ async function main(): Promise<void> {
 
     const heard = await recognize(audio, [language]);
     console.log(`   stt  : ${heard ? `"${heard.text}" (confidence ${heard.confidence.toFixed(2)})` : 'NOTHING RECOGNISED'}`);
+
+    /**
+     * The same audio again with the clinic's vocabulary biased in.
+     *
+     * Side by side because "phrase lists help telephony STT" is a claim worth
+     * checking against this account, this locale and this audio rather than
+     * being taken from a docs page.
+     */
+    const biased = await recognize(audio, [language], vocabulary[language] ?? []);
+    if (biased) {
+      const delta = biased.confidence - (heard?.confidence ?? 0);
+      console.log(
+        `   +list: "${biased.text}" (confidence ${biased.confidence.toFixed(2)}, ` +
+          `${delta >= 0 ? '+' : ''}${delta.toFixed(2)})`,
+      );
+    }
     console.log();
   }
 

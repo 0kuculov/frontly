@@ -78,6 +78,28 @@ export const recognitionConfigSchema = z.object({
   repromptAfterMs: z.number().int().min(2000).max(30_000).default(8000),
   /** Reprompts before offering a callback and ending the call cleanly. */
   maxReprompts: z.number().int().min(1).max(5).default(2),
+  /**
+   * How hard to bias recognition towards the business's own vocabulary.
+   *
+   * Azure's range is 0.0-2.0, 1.0 being neutral and 0 disabling the phrase
+   * list. Biased above neutral by default because the vocabulary here really
+   * is tiny and the audio really is 8 kHz — but too high starts hearing
+   * service names in noise, so it is tunable by ear like the rest.
+   */
+  phraseListWeight: z.number().min(0).max(2).default(1.5),
+  /**
+   * Below this recognition confidence the agent admits it did not catch it
+   * rather than answering something the caller did not say.
+   */
+  minConfidence: z.number().min(0).max(1).default(0.4),
+  /**
+   * Consecutive low-confidence turns before the agent stops retrying the same
+   * question and offers a way out.
+   *
+   * A caller the system genuinely cannot hear gets a graceful exit. Retrying
+   * indefinitely is what turned a bad line into a loop.
+   */
+  maxLowConfidenceTurns: z.number().int().min(1).max(5).default(2),
 });
 
 export type RecognitionConfig = z.infer<typeof recognitionConfigSchema>;

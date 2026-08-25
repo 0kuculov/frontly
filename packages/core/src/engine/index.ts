@@ -6,3 +6,4 @@ export * from './sanitize.js';
 export * from './sentences.js';
 export * from './model.js';
 export * from './handle-turn.js';
+export * from './vocabulary.js';

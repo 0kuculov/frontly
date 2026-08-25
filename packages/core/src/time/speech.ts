@@ -26,7 +26,7 @@ const MK_WEEKDAYS = [
   'сабота',
 ] as const;
 
-const MK_MONTHS = [
+export const MK_MONTHS = [
   'јануари',
   'февруари',
   'март',
@@ -65,7 +65,8 @@ const MK_ORDINALS_1_TO_20 = [
   'дваесетти',
 ] as const;
 
-function mkOrdinalDay(day: number): string {
+/** Exported so the speech sanitiser can repair a numeral the model wrote. */
+export function mkOrdinalDay(day: number): string {
   if (day <= 20) return MK_ORDINALS_1_TO_20[day - 1]!;
   if (day === 30) return 'триесетти';
   const tens = day < 30 ? 'дваесет' : 'триесет';
@@ -298,5 +299,44 @@ export function speakDuration(minutes: number, language: Language): string {
       return minutes === 60 ? 'një orë' : `${minutes} minuta`;
     case 'en':
       return minutes === 60 ? 'one hour' : `${minutes} minutes`;
+  }
+}
+
+/**
+ * Every calendar and clock word the agent can say, and therefore every one a
+ * caller is likely to say back.
+ *
+ * Used to build the recognizer's phrase list. Recognition of a constrained
+ * vocabulary over an 8 kHz line is the single biggest lever available without
+ * changing provider, and this is where that vocabulary already lives.
+ */
+export function calendarVocabulary(language: Language): string[] {
+  switch (language) {
+    case 'mk':
+      return [
+        ...MK_WEEKDAYS,
+        ...MK_MONTHS,
+        ...MK_ORDINALS_1_TO_20,
+        'дваесет и први',
+        'дваесет и петти',
+        'дваесет и шести',
+        'триесетти',
+        ...MK_HOURS,
+        ...Object.values(MK_MINUTES),
+        'и половина',
+        'часот',
+        'наутро',
+        'напладне',
+        'попладне',
+        'навечер',
+        'денес',
+        'утре',
+        'задутре',
+        'следната недела',
+      ];
+    case 'sq':
+      return [...SQ_WEEKDAYS, ...SQ_MONTHS, 'sot', 'nesër', 'pasnesër', 'e gjysmë', 'në orën'];
+    case 'en':
+      return [...EN_WEEKDAYS, ...EN_MONTHS, 'today', 'tomorrow', 'half past', 'quarter past'];
   }
 }

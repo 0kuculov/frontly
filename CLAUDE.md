@@ -230,6 +230,27 @@ add drizzle to the API.
   (bounded) for the speech cache to finish warming. Past the bound it answers
   anyway and says so — on-demand synthesis is a real audio path, one Azure
   round trip slower, and it is what the session already falls back to.
+- **Recognition is biased with a phrase list built from the business row.**
+  `recognitionPhrases()` in core returns the clinic's services, staff, days,
+  months, clock words and booking phrases (~120 for the demo clinic, Azure's
+  ceiling is 500) and `PhraseListGrammar` applies them at weight 1.5. A
+  receptionist for one clinic hears a tiny vocabulary; a general model has to
+  guess among all of Macedonian, over 8kHz, sometimes through a second VoIP
+  transcode. Tunable with `tune:speech --phrase-weight`.
+- **The repeat-after-a-mishearing loop was NOT the reprompt timer.** Every
+  low-confidence result spoke the same apology, uncapped: `lowConfidenceStreak
+  >= 2` set an outcome field and changed no behaviour whatsoever. On a poor
+  line every utterance lands there, so the caller heard one identical sentence
+  forever, and no amount of `--reprompt-after` tuning touched it. There is now
+  a `maxLowConfidenceTurns` cap that ends with a transfer or callback, and the
+  apology escalates like the reprompts do.
+- **Numeral dates are spelled out by the sanitiser, not just forbidden by the
+  prompt.** The model writes "26 август" often enough, and Azure reads a bare
+  numeral as a cardinal ("дваесет и шест"), which is wrong and audible. The
+  pass runs *before* markdown stripping, because "1. јануари" at the start of
+  a line is indistinguishable from a numbered list item. Note that JavaScript
+  `` is defined over `[A-Za-z0-9_]` and does not fire around Cyrillic at
+  all — the pattern uses lookarounds.
 - **Azure STT returns no confidence unless `OutputFormat.Detailed` is set.**
   Without it every result scores 1.0 and the low-confidence path can never fire.
 - **Azure's recognizer drops audio written before `startContinuousRecognitionAsync`

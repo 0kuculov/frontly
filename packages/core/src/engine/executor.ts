@@ -352,7 +352,8 @@ function requireService(ctx: TurnContext, serviceId: string): Service {
   return service;
 }
 
-function serviceName(service: Service, language: string): string {
+/** Exported so the recognition vocabulary uses the same names the agent says. */
+export function serviceName(service: Service, language: string): string {
   if (language === 'sq') return service.nameSq ?? service.nameMk;
   if (language === 'en') return service.nameEn ?? service.nameMk;
   return service.nameMk;

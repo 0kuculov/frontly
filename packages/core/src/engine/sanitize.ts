@@ -1,4 +1,5 @@
 import type { Language } from '@frontly/shared';
+import { MK_MONTHS, mkOrdinalDay } from '../time/speech.js';
 
 /**
  * Make a model reply safe to hand to a speech synthesizer.
@@ -57,14 +58,52 @@ export interface SanitizeOptions {
 }
 
 export function sanitizeForSpeech(text: string, options: SanitizeOptions = {}): string {
-  const stripped = stripMarkdown(text);
-
   // Only Macedonian replies get the script pass. An English or Albanian reply
   // is Latin by definition.
   const language = options.language ?? 'mk';
+
+  /**
+   * Dates before markdown, deliberately.
+   *
+   * "1. јануари" at the start of a line is indistinguishable from a numbered
+   * list item, and the list stripper would eat the day before the date pass
+   * ever saw it.
+   */
+  const dated = language === 'mk' ? spellNumeralDates(text) : text;
+  const stripped = stripMarkdown(dated);
   if (language !== 'mk' || !CYRILLIC.test(stripped)) return stripped;
 
   return fixLatinInCyrillic(stripped, language, options);
+}
+
+/**
+ * "26 август" -> "дваесет и шести август".
+ *
+ * `speakDate` already produces the spelled form, and the prompt forbids
+ * digits — but the model writes dates itself often enough, and a numeral is
+ * read aloud as a cardinal ("дваесет и шест август"), which is wrong and
+ * audibly so. Same reasoning as markdown and the Latin-script pass: the
+ * prompt is the request, this is the floor.
+ *
+ * Deliberately narrow. Only a 1-2 digit number immediately before a month
+ * name is touched, so prices, durations and phone numbers are left alone.
+ */
+export function spellNumeralDates(text: string): string {
+  const months = MK_MONTHS.join('|');
+  /**
+   * Lookarounds rather than word boundaries: JavaScript defines \b over
+   * [A-Za-z0-9_], so it does not fire around Cyrillic at all. Nothing numeric
+   * immediately before the day, no further letters after the month.
+   */
+  const pattern = new RegExp(
+    `(?<![\\d.,])(\\d{1,2})\\.?(\\s+)(${months})(?![\\p{L}])`,
+    'giu',
+  );
+  return text.replace(pattern, (whole, digits: string, gap: string, month: string) => {
+    const day = Number(digits);
+    if (!Number.isInteger(day) || day < 1 || day > 31) return whole;
+    return `${mkOrdinalDay(day)}${gap}${month}`;
+  });
 }
 
 function stripMarkdown(text: string): string {

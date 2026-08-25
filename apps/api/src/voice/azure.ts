@@ -175,6 +175,24 @@ class AzureSpeechToText implements ISpeechToText {
       this.recognizer = new sdk.SpeechRecognizer(config, audioConfig);
     }
 
+    /**
+     * Bias towards the vocabulary this clinic actually uses.
+     *
+     * Applied after the recognizer exists and before recognition starts —
+     * phrases take effect from the next recognition, so setting them here
+     * covers the caller's opening words. A weight above 1.0 leans harder on
+     * the list, which is what a narrow domain over 8 kHz wants.
+     */
+    if (options.phrases && options.phrases.length > 0) {
+      const grammar = sdk.PhraseListGrammar.fromRecognizer(this.recognizer);
+      grammar.addPhrases(options.phrases);
+      grammar.setWeight(recognition.phraseListWeight);
+      options.onDiagnostic?.(
+        { phrases: options.phrases.length, weight: recognition.phraseListWeight },
+        'phrase list applied',
+      );
+    }
+
     this.wireHandlers(options);
     this.recognizer.startContinuousRecognitionAsync(
       () => {

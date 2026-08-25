@@ -99,3 +99,27 @@ describe('protectedTermsFor', () => {
     expect(terms).toContain('д-р Ана Смилевска');
   });
 });
+
+describe('numeral dates', () => {
+  it('spells out a day the model wrote as a digit', () => {
+    // speakDate already produces words, and the prompt forbids digits, but the
+    // model writes dates itself often enough — and "26 август" is read aloud
+    // as a cardinal, which is wrong and audible.
+    expect(sanitizeForSpeech('Закажано за 26 август во десет.', { language: 'mk' })).toContain(
+      'дваесет и шести август',
+    );
+    expect(sanitizeForSpeech('во 3 септември', { language: 'mk' })).toContain('трети септември');
+    expect(sanitizeForSpeech('1. јануари', { language: 'mk' })).toContain('први јануари');
+  });
+
+  it('leaves numbers that are not dates alone', () => {
+    // Prices, durations and phone numbers must survive untouched.
+    expect(sanitizeForSpeech('Цената е 1500 денари.', { language: 'mk' })).toContain('1500 денари');
+    expect(sanitizeForSpeech('Трае 45 минути.', { language: 'mk' })).toContain('45 минути');
+    expect(sanitizeForSpeech('Бројот е 070 111 222.', { language: 'mk' })).toContain('070 111 222');
+  });
+
+  it('leaves an impossible day alone rather than inventing an ordinal', () => {
+    expect(sanitizeForSpeech('верзија 99 август', { language: 'mk' })).toContain('99 август');
+  });
+});

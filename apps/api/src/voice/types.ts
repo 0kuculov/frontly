@@ -91,6 +91,12 @@ export interface SpeechToTextOptions {
   handlers: SpeechToTextHandlers;
   /** Segmentation tuning. Omitted means the shared defaults. */
   recognition?: RecognitionConfig | undefined;
+  /**
+   * Vocabulary to bias recognition towards — service names, staff, days,
+   * booking phrases. The single biggest accuracy lever on a narrow domain
+   * over a phone line.
+   */
+  phrases?: string[] | undefined;
   /** Somewhere to report what each finalization was triggered by. */
   onDiagnostic?: ((payload: Record<string, unknown>, message: string) => void) | undefined;
 }

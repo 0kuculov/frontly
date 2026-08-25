@@ -52,16 +52,29 @@ describe('environment validation', () => {
     NODE_ENV: 'production',
   };
 
-  it('deploys to production without PUBLIC_BASE_URL before a carrier exists', () => {
-    // Phase 1 has no inbound channel, so there are no webhook URLs to build.
-    // Demanding one here blocked a deploy over a Phase 3 concern.
+  it('refuses a production deploy that cannot answer the phone', () => {
+    // Through Phases 1-2 this config was legitimately fine: there was no
+    // inbound channel, and demanding webhook config blocked a deploy over a
+    // future concern. From Phase 3 the phone line IS the product, and a
+    // deploy missing these came up green with no voice route at all.
     const result = serverEnvSchema.safeParse(productionDb);
+    expect(result.success).toBe(false);
+    const paths = result.error?.issues.flatMap((i) => i.path) ?? [];
+    expect(paths).toContain('AZURE_SPEECH_KEY');
+    expect(paths).toContain('TELNYX_API_KEY');
+  });
+
+  it('still boots outside production with nothing configured', () => {
+    // The rule above is about production only. A laptop with an empty .env
+    // must still start, or the dashboard cannot be worked on without keys.
+    const result = serverEnvSchema.safeParse({ DATABASE_URL: 'file:./frontly.db' });
     expect(result.success).toBe(true);
   });
 
   it('demands PUBLIC_BASE_URL once the carrier is configured', () => {
     const result = serverEnvSchema.safeParse({
       ...productionDb,
+      AZURE_SPEECH_KEY: 'azure_test',
       TELNYX_API_KEY: 'KEY_test',
       TELNYX_PUBLIC_KEY: 'pub_test',
     });
@@ -74,6 +87,7 @@ describe('environment validation', () => {
     // answers phone calls. Fine on a laptop, a bill on a public URL.
     const result = serverEnvSchema.safeParse({
       ...productionDb,
+      AZURE_SPEECH_KEY: 'azure_test',
       TELNYX_API_KEY: 'KEY_test',
       PUBLIC_BASE_URL: 'https://frontly-api.onrender.com',
     });
@@ -81,9 +95,10 @@ describe('environment validation', () => {
     expect(result.error?.issues.some((i) => i.path.includes('TELNYX_PUBLIC_KEY'))).toBe(true);
   });
 
-  it('accepts the carrier configured alongside PUBLIC_BASE_URL', () => {
+  it('accepts a fully configured production deploy', () => {
     const result = serverEnvSchema.safeParse({
       ...productionDb,
+      AZURE_SPEECH_KEY: 'azure_test',
       TELNYX_API_KEY: 'KEY_test',
       TELNYX_PUBLIC_KEY: 'pub_test',
       PUBLIC_BASE_URL: 'https://frontly-api.onrender.com',

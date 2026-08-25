@@ -94,6 +94,31 @@ const serverEnvShape = z
     }
 
     /**
+     * In production the voice channel is not optional.
+     *
+     * These were optional-at-boot through Phase 1 and 2, which was right then:
+     * no inbound channel existed. From Phase 3 the phone line IS the product,
+     * and leaving them optional meant a deploy missing one came up green with
+     * no voice route at all — healthy, and unable to answer. The guard names
+     * the variable so the Render log says which one.
+     */
+    if (env.NODE_ENV === 'production') {
+      const forVoice: [keyof typeof env, string][] = [
+        ['AZURE_SPEECH_KEY', 'the agent has no voice and cannot hear the caller'],
+        ['TELNYX_API_KEY', 'inbound calls are never answered'],
+      ];
+      for (const [key, consequence] of forVoice) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `${key} is required in production — without it ${consequence}.`,
+          });
+        }
+      }
+    }
+
+    /**
      * PUBLIC_BASE_URL only means anything once an inbound channel has to hand
      * out callback URLs, which is telephony in Phase 3. Requiring it at boot
      * blocked the Phase 1 deploy over a Phase 3 concern — so it is demanded

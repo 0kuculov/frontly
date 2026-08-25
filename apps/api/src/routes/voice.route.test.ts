@@ -206,3 +206,107 @@ describe('POST /telnyx/voice', () => {
     );
   });
 });
+
+describe('voice channel boot assertion', () => {
+  /**
+   * A deploy once came up healthy with no voice route at all, and the only way
+   * to discover it was to curl the webhook by hand. These are the checks that
+   * would have turned that into a failed deploy instead of a silent one.
+   */
+  async function build(overrides: Record<string, unknown>, options = {}) {
+    const scratch = await createTestDb({ seed: false });
+    const env = serverEnvSchema.parse({
+      NODE_ENV: 'test',
+      LOG_LEVEL: 'silent',
+      DATABASE_URL: scratch.url,
+      PUBLIC_BASE_URL: 'https://frontly.onrender.com',
+      ...overrides,
+    });
+    return { scratch, build: () => buildApp(env, { warmSpeechCache: false, ...options }) };
+  }
+
+  it('refuses to boot when the carrier is missing and voice is required', async () => {
+    const { scratch, build: run } = await build(
+      {},
+      { requireVoiceChannel: true, speechProvider: inertSpeech },
+    );
+    await expect(run()).rejects.toThrow(/TELNYX_API_KEY/);
+    scratch.cleanup();
+  });
+
+  it('refuses to boot when speech is missing and voice is required', async () => {
+    const { scratch, build: run } = await build(
+      {},
+      { requireVoiceChannel: true, telephonyProvider: new TelnyxProvider({ apiKey: 'k' }) },
+    );
+    await expect(run()).rejects.toThrow(/AZURE_SPEECH_KEY/);
+    scratch.cleanup();
+  });
+
+  it('still starts without voice outside production, so the dashboard is workable', async () => {
+    const { scratch, build: run } = await build({}, { requireVoiceChannel: false });
+    const { app: built } = await run();
+    await built.ready();
+    expect((await built.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+    expect((await built.inject({ method: 'GET', url: '/health' })).json().checks.voice.status).toBe(
+      'disabled',
+    );
+    await built.close();
+    scratch.cleanup();
+  });
+
+  it('reports the mounted webhook in /health, so green means the phone works', async () => {
+    const { scratch, build: run } = await build(
+      {},
+      {
+        requireVoiceChannel: true,
+        speechProvider: inertSpeech,
+        telephonyProvider: new TelnyxProvider({ apiKey: 'k' }),
+      },
+    );
+    const { app: built } = await run();
+    await built.ready();
+
+    const health = (await built.inject({ method: 'GET', url: '/health' })).json();
+    expect(health.checks.voice).toMatchObject({
+      status: 'ok',
+      carrier: 'telnyx',
+      webhook: '/telnyx/voice',
+    });
+    // And the route genuinely exists, not merely a claim in a JSON body.
+    expect(built.hasRoute({ method: 'POST', url: '/telnyx/voice' })).toBe(true);
+
+    await built.close();
+    scratch.cleanup();
+  });
+
+  it('fails on ready when the routes never reached the served tree', async () => {
+    // The failure `register` resolving cannot catch: a plugin that runs but
+    // whose routes end up somewhere other than the instance about to serve.
+    const silentProvider = new TelnyxProvider({ apiKey: 'k' });
+    Object.defineProperty(silentProvider, 'routePrefix', { get: () => '/telnyx' });
+
+    const scratch = await createTestDb({ seed: false });
+    const env = serverEnvSchema.parse({
+      NODE_ENV: 'test',
+      LOG_LEVEL: 'silent',
+      DATABASE_URL: scratch.url,
+      PUBLIC_BASE_URL: 'https://frontly.onrender.com',
+    });
+
+    const { app: built } = await buildApp(env, {
+      warmSpeechCache: false,
+      requireVoiceChannel: true,
+      speechProvider: inertSpeech,
+      telephonyProvider: silentProvider,
+    });
+
+    // Move the goalposts after registration: the assertion asks the live route
+    // tree, so a prefix that no longer matches is exactly a missing route.
+    Object.defineProperty(silentProvider, 'routePrefix', { get: () => '/moved' });
+
+    await expect(built.ready()).rejects.toThrow(/not in the served route tree/);
+    await built.close().catch(() => {});
+    scratch.cleanup();
+  });
+});

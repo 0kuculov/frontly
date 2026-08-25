@@ -35,6 +35,11 @@ export interface BuildAppOptions {
   telephonyProvider?: ITelephonyProvider;
   /** Tests turn this off so they do not synthesize on boot. */
   warmSpeechCache?: boolean;
+  /**
+   * Refuse to boot without a working voice channel. Defaults to true in
+   * production. Tests set it explicitly rather than depending on NODE_ENV.
+   */
+  requireVoiceChannel?: boolean;
 }
 
 export async function buildApp(
@@ -64,12 +69,28 @@ export async function buildApp(
     credentials: true,
   });
 
-  await app.register(healthRoutes, { db, version: API_VERSION });
+  /**
+   * Set once the voice channel has actually mounted, and read by /health so a
+   * green health check means the phone works, not merely that the process is
+   * up. Declared before the health route so the closure sees later writes.
+   */
+  let voiceChannel: { carrier: string; prefix: string } | undefined;
+
+  await app.register(healthRoutes, {
+    db,
+    version: API_VERSION,
+    voice: () => voiceChannel,
+  });
 
   /**
-   * The voice channel needs both a carrier and a speech provider. Missing
-   * either disables it and leaves the rest of the API up, which is what keeps
-   * a half-configured deploy usable instead of crash-looping.
+   * The voice channel needs both a carrier and a speech provider.
+   *
+   * Outside production, missing either disables voice and leaves the rest of
+   * the API up — that is what makes the dashboard workable without an Azure
+   * key. In production it is fatal, because Frontly IS the phone line: an
+   * instance that answers /health but has no voice route is a service that
+   * looks alive and silently cannot take a call. That exact state shipped
+   * once and was only noticed by curling the webhook by hand.
    */
   const speech: ISpeechProvider | undefined =
     options.speechProvider ??
@@ -83,13 +104,53 @@ export async function buildApp(
       ? new TelnyxProvider({ apiKey: env.TELNYX_API_KEY, publicKey: env.TELNYX_PUBLIC_KEY })
       : undefined);
 
-  if (speech && telephony) {
+  const voiceRequired = options.requireVoiceChannel ?? env.NODE_ENV === 'production';
+
+  if (!speech || !telephony) {
+    const missing = [
+      speech ? undefined : 'AZURE_SPEECH_KEY',
+      telephony ? undefined : 'TELNYX_API_KEY',
+    ].filter(Boolean);
+
+    if (voiceRequired) {
+      throw new Error(
+        `The voice channel cannot start: ${missing.join(' and ')} missing. ` +
+          'Frontly is a phone line, so booting without one would serve a healthy ' +
+          '/health on a service that cannot answer a call. Set it, or run with ' +
+          'NODE_ENV other than production.',
+      );
+    }
+
+    app.log.warn({ missing }, 'voice channel disabled');
+  } else {
     const cache = new SpeechCache(speech);
     await app.register(voiceRoutes, { db, env, telephony, speech, cache });
-    app.log.info(
-      { carrier: telephony.name, prefix: telephony.routePrefix },
-      'voice channel registered',
-    );
+    voiceChannel = { carrier: telephony.name, prefix: telephony.routePrefix };
+
+    /**
+     * Verify the effect, not the intent.
+     *
+     * `register` resolving proves a plugin ran, not that its routes reached
+     * the tree that is about to serve traffic — a route added to the wrong
+     * instance, or a plugin whose error was swallowed, both look identical
+     * from here. onReady fires once the route tree is final, so asking it
+     * directly is the only check that cannot be fooled.
+     */
+    app.addHook('onReady', async () => {
+      const expected = [
+        { method: 'POST' as const, url: `${telephony.routePrefix}/voice` },
+        { method: 'GET' as const, url: `${telephony.routePrefix}/stream` },
+      ];
+      const missingRoutes = expected.filter((route) => !app.hasRoute(route));
+      if (missingRoutes.length > 0) {
+        throw new Error(
+          'The voice channel registered but its routes are not in the served route ' +
+            `tree: ${missingRoutes.map((r) => `${r.method} ${r.url}`).join(', ')}. ` +
+            'Refusing to start rather than answer /health on a line that cannot ring.',
+        );
+      }
+      app.log.info(voiceChannel ?? {}, 'voice channel registered');
+    });
 
     /**
      * Warm in the background.
@@ -110,12 +171,6 @@ export async function buildApp(
     }
 
     app.addHook('onClose', () => cache.close());
-  } else {
-    const missing = [
-      speech ? undefined : 'AZURE_SPEECH_KEY',
-      telephony ? undefined : 'TELNYX_API_KEY',
-    ].filter(Boolean);
-    app.log.warn({ missing }, 'voice channel disabled');
   }
 
   app.get('/', async () => ({

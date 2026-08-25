@@ -94,6 +94,23 @@ add drizzle to the API.
   fails. The `"pnpm"` key in package.json is NOT read by pnpm 11.
 - **`engines.node` is `>=24 <25`** and overrides Render's `NODE_VERSION`. An
   open `>=22` let a deploy pick up Node 26.
+- **A failed deploy leaves the OLD build running against the NEW schema.**
+  `startCommand` is `pnpm db:migrate:dist && pnpm start`, so a start failure
+  still migrates first. Render then keeps the previous instance serving — old
+  code, new columns. That is how a live service ended up 500-ing on every
+  `businesses` query (`no such column: twilio_number`) while `/health` stayed
+  green, because health only pinged the database. When something looks wrong
+  in production, check *which build* is running before debugging the code:
+  `curl -X POST .../voice/incoming` answering means the pre-Telnyx build.
+- **In production the voice channel is required, and asserted.** Missing
+  `AZURE_SPEECH_KEY` or `TELNYX_API_KEY` now fails at boot with the variable
+  named, and an `onReady` hook checks the routes are genuinely in the served
+  route tree — `await app.register(...)` resolving proves a plugin ran, not
+  that its routes reached the instance about to listen. `/health` reports the
+  mounted webhook, so a green health check means the phone works.
+- **`sync: false` in render.yaml means Render never sets it.** Renaming the
+  `TWILIO_*` block to `TELNYX_*` added three declarations that must be filled
+  in by hand in the dashboard; the rename alone carries nothing across.
 - **A vendor name in a schema is a trap.** `businesses.twilio_number` became
   `inbound_number` (migration `0001`) when the carrier changed and will hold a
   +389 number next. Routing falls back to the only business when exactly one

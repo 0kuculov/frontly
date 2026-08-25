@@ -16,10 +16,27 @@ export const DID_NOT_CATCH: Record<Language, string> = {
   en: 'Sorry, I did not catch that. Could you repeat it, or shall I put you through to a colleague?',
 };
 
-export const STILL_THERE: Record<Language, string> = {
-  mk: 'Сè уште сте тука?',
-  sq: 'Jeni ende aty?',
-  en: 'Are you still there?',
+/**
+ * Checking whether the caller is still on the line.
+ *
+ * Several per language, escalating, and never repeated verbatim: hearing the
+ * identical sentence twice is what makes the agent feel like a stuck loop
+ * rather than a person checking in. The last one names the way out, so a
+ * caller who can hear but cannot get a word in knows what happens next.
+ */
+export const REPROMPTS: Record<Language, readonly string[]> = {
+  mk: [
+    'Сè уште сте тука?',
+    'Ме слушате ли? Ако сакате, можам да ве поврзам со колега.',
+  ],
+  sq: [
+    'Jeni ende aty?',
+    'A më dëgjoni? Nëse doni, mund t’ju lidh me një koleg.',
+  ],
+  en: [
+    'Are you still there?',
+    'Can you hear me? I can put you through to a colleague if that is easier.',
+  ],
 };
 
 /**
@@ -60,7 +77,7 @@ export const FILLERS: Record<Language, readonly string[]> = {
 export function cacheablePhrases(language: Language): string[] {
   return [
     DID_NOT_CATCH[language],
-    STILL_THERE[language],
+    ...REPROMPTS[language],
     TRANSFER_UNAVAILABLE[language],
     CALLBACK_OFFER[language],
     ...FILLERS[language],

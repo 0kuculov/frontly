@@ -178,6 +178,26 @@ add drizzle to the API.
   even requested. Fewer interruptions and faster replies are the same dial;
   `pnpm --filter @frontly/api tune:speech --silence <ms>` writes it to the
   business row and the next call picks it up, with no restart or deploy.
+- **The silence clock is a periodic check, not an armed timer.** Arming it
+  was wrong twice, in two different ways, because there is no single correct
+  moment to arm from. The playback queue empties *between* streamed sentences
+  while the next is still being synthesized, so "nothing is playing" does not
+  mean "the caller has gone quiet". `checkSilence` instead asks, on a tick,
+  whether anyone has been audible — where audible means a turn running,
+  a synthesis outstanding (`pendingSpeech`), or audio queued. Removing any one
+  of those three makes the agent reprompt over its own next sentence.
+- **Reprompts escalate and are capped.** Repeating the identical sentence is
+  what turns "checking in" into "stuck in a loop", so `REPROMPTS` holds a
+  short escalating list per language and the last one names the way out.
+  After `maxReprompts` the agent offers a callback and hangs up cleanly rather
+  than holding an open line.
+- **An empty final recognition result is not a turn.** Azure occasionally
+  finalizes on noise with no words in it; acting on one sends the model an
+  empty message, resets the silence counter, and makes the agent speak
+  unprompted — which sounds like it is talking to itself.
+- **Every turn logs why it started** (`turn started` with a `reason`), because
+  a reprompt and a real answer are indistinguishable in a transcript, and a
+  call that felt like a loop cannot be read back without it.
 - **Only a final recognition result starts a turn.** `recognizing` fires
   continuously with unstable hypotheses; acting on one answers a sentence the
   caller is halfway through. Partials are used for one thing only: confirming

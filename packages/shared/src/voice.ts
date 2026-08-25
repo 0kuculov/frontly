@@ -65,6 +65,19 @@ export const recognitionConfigSchema = z.object({
   bargeInMs: z.number().int().min(0).max(3000).default(350),
   /** Characters in a partial transcript that count as actually talking. */
   bargeInMinChars: z.number().int().min(0).max(40).default(2),
+  /**
+   * How long the line may be quiet before the agent checks the caller is
+   * still there.
+   *
+   * Measured from the moment the agent stops *speaking*, not from when the
+   * model finished generating — a caller listening to a reply has not gone
+   * quiet. Tuned by ear alongside the segmentation timeout, because the two
+   * compound: a caller who pauses to think spends the segmentation timeout
+   * before their turn even ends.
+   */
+  repromptAfterMs: z.number().int().min(2000).max(30_000).default(8000),
+  /** Reprompts before offering a callback and ending the call cleanly. */
+  maxReprompts: z.number().int().min(1).max(5).default(2),
 });
 
 export type RecognitionConfig = z.infer<typeof recognitionConfigSchema>;

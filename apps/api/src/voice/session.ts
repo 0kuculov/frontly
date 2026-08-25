@@ -26,7 +26,7 @@ import {
   CALLBACK_OFFER,
   DID_NOT_CATCH,
   FILLERS,
-  STILL_THERE,
+  REPROMPTS,
   TRANSFER_UNAVAILABLE,
 } from './phrases.js';
 import { phraseRequest, type SpeechCache } from './speech-cache.js';
@@ -43,6 +43,9 @@ import type { ISpeechProvider, ISpeechToText, ITextToSpeech, TranscriptionResult
  * through handleTurn. This file is an adapter, and if it ever starts making
  * decisions about appointments the layering has gone wrong.
  */
+
+/** Why a turn ran. A reprompt must be distinguishable from a real answer. */
+export type TurnReason = 'caller' | 'queued-while-busy';
 
 export interface CallSessionLogger {
   info(payload: Record<string, unknown>, message: string): void;
@@ -95,7 +98,7 @@ export interface CallSessionOptions {
   recognition?: RecognitionConfig | undefined;
 }
 
-const DEFAULT_SILENCE_MS = 6000;
+
 /**
  * How long the line may stay quiet mid-turn before a filler plays.
  *
@@ -104,7 +107,7 @@ const DEFAULT_SILENCE_MS = 6000;
  * wondering whether the call dropped.
  */
 const DEFAULT_FILLER_AFTER_MS = 800;
-const DEFAULT_MAX_SILENCE_PROMPTS = 1;
+
 const DEFAULT_MIN_CONFIDENCE = 0.4;
 
 export class CallSession {
@@ -120,6 +123,10 @@ export class CallSession {
 
   private conversationId: string | undefined;
   private silenceTimer: NodeJS.Timeout | undefined;
+  /** Last moment either side was audible; the quiet clock counts from here. */
+  private lastAudibleAt = Date.now();
+  /** Sentences synthesized but not yet queued — still "about to speak". */
+  private pendingSpeech = 0;
   /** Armed on speech-start, fired only once the caller is confirmed talking. */
   private bargeInTimer: NodeJS.Timeout | undefined;
   private silencePrompts = 0;
@@ -142,6 +149,15 @@ export class CallSession {
    * restart, no deploy, which is the only way to set these by ear.
    */
   private readonly recognition: RecognitionConfig;
+
+  /** How long the line may be quiet before the agent checks in. */
+  private get repromptAfterMs(): number {
+    return this.options.silenceMs ?? this.recognition.repromptAfterMs;
+  }
+
+  private get maxReprompts(): number {
+    return this.options.maxSilencePrompts ?? this.recognition.maxReprompts;
+  }
 
   constructor(private readonly options: CallSessionOptions) {
     this.recognition = options.recognition ?? recognitionFor(options.business.voiceConfig);
@@ -200,7 +216,7 @@ export class CallSession {
       await this.speak(greeting, { greeting: true });
     }
 
-    this.armSilenceTimer();
+    this.startSilenceWatch();
   }
 
   /** The greeting carries the configured pause between sentence and question. */
@@ -219,7 +235,7 @@ export class CallSession {
   async stop(reason: string): Promise<void> {
     if (this.ended) return;
     this.ended = true;
-    this.clearSilenceTimer();
+    this.stopSilenceWatch();
     if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
     this.bargeInTimer = undefined;
     this.playback.interrupt();
@@ -257,7 +273,7 @@ export class CallSession {
    * `bargeInMs`. Speech-end before either cancels it.
    */
   private onSpeechStarted(): void {
-    this.clearSilenceTimer();
+    this.noteCallerActivity();
     if (!this.playback.isPlaying || this.bargeInTimer) return;
 
     const after = this.recognition.bargeInMs;
@@ -302,9 +318,26 @@ export class CallSession {
 
   private async onUtterance(result: TranscriptionResult): Promise<void> {
     if (this.ended) return;
+
+    /**
+     * An empty final is not a turn.
+     *
+     * Azure occasionally finalizes on noise with no words in it. Acting on one
+     * sends the model an empty message, resets the silence counter, and makes
+     * the agent say something unprompted — which from the caller's side is the
+     * agent talking to itself.
+     */
+    if (!result.text.trim()) {
+      this.options.logger.info(
+        { callRef: this.options.callRef, confidence: result.confidence },
+        'ignored an empty recognition result',
+      );
+      return;
+    }
+
     // A final result is proof, so anything still playing stops now.
     this.fireBargeIn('final result');
-    this.clearSilenceTimer();
+    this.noteCallerActivity();
     this.silencePrompts = 0;
 
     // Lock to the caller's language the first time detection produces one.
@@ -332,7 +365,7 @@ export class CallSession {
       await this.speak(DID_NOT_CATCH[this.language]);
       // Two in a row means the line is bad, not that the caller mumbled.
       if (this.lowConfidenceStreak >= 2) this.state.outcome ??= 'transferred';
-      this.armSilenceTimer();
+      this.startSilenceWatch();
       return;
     }
 
@@ -360,12 +393,12 @@ export class CallSession {
     // Never fail silently: say something and offer a human.
     this.state.outcome ??= 'transferred';
     await this.speak(DID_NOT_CATCH[this.language]);
-    this.armSilenceTimer();
+    this.startSilenceWatch();
   }
 
   // --- the engine ------------------------------------------------------------
 
-  private async runTurn(text: string): Promise<void> {
+  private async runTurn(text: string, reason: TurnReason = 'caller'): Promise<void> {
     /**
      * A caller who answers before the agent has finished thinking must not be
      * ignored. Dropping the utterance here is what made a simulated call
@@ -381,6 +414,17 @@ export class CallSession {
       return;
     }
     this.busy = true;
+
+    /**
+     * Why this turn is running.
+     *
+     * A reprompt and a real answer look identical in a transcript, so a call
+     * that felt like a loop cannot be read back without this.
+     */
+    this.options.logger.info(
+      { callRef: this.options.callRef, reason, text, turn: this.state.turnCount + 1 },
+      'turn started',
+    );
 
     const spokenSentences: string[] = [];
     const turnStartedAt = Date.now();
@@ -524,11 +568,11 @@ export class CallSession {
       const queued = this.pendingUtterance;
       this.pendingUtterance = undefined;
       if (queued && !this.ended) {
-        await this.runTurn(queued);
+        await this.runTurn(queued, 'queued-while-busy');
         return;
       }
 
-      this.armSilenceTimer();
+      this.startSilenceWatch();
     }
   }
 
@@ -552,6 +596,19 @@ export class CallSession {
       }
     }
     return undefined;
+  }
+
+  /**
+   * The next thing to say when checking in.
+   *
+   * Escalates rather than repeating: hearing the identical sentence twice is
+   * what turns "the agent is checking in" into "the agent is stuck in a loop".
+   * Clamps to the last variant so a higher maxReprompts still says something.
+   */
+  private repromptText(): string {
+    const variants = REPROMPTS[this.language];
+    const index = Math.min(this.silencePrompts - 1, variants.length - 1);
+    return variants[Math.max(0, index)]!;
   }
 
   /** True while a turn is in flight — the simulation uses it to pace itself. */
@@ -631,6 +688,7 @@ export class CallSession {
     }
 
     const synthesisStartedAt = Date.now();
+    this.pendingSpeech++;
     try {
       const audio = await this.tts.synthesize(request);
       this.lastSynthesisMs = Date.now() - synthesisStartedAt;
@@ -646,6 +704,8 @@ export class CallSession {
         'speech synthesis failed',
       );
       this.state.outcome ??= 'transferred';
+    } finally {
+      this.pendingSpeech--;
     }
   }
 
@@ -656,49 +716,87 @@ export class CallSession {
 
   // --- silence ---------------------------------------------------------------
 
-  private armSilenceTimer(): void {
-    this.clearSilenceTimer();
+  /**
+   * One periodic check instead of a timer armed from six places.
+   *
+   * Arming was subtly wrong in a way that kept coming back. The playback queue
+   * empties *between* streamed sentences, while the next one is still being
+   * synthesized, so `isPlaying` goes false mid-reply — and arming there started
+   * counting the caller's silence while the agent was still talking. The
+   * reprompt then landed moments after it stopped speaking, which is exactly
+   * what makes it feel like it is interrupting rather than waiting.
+   *
+   * Asking "has the line actually been quiet?" on a tick has no such moment to
+   * get wrong: the line is not quiet while audio is queued, while a turn is
+   * running, or while a sentence is still being synthesized.
+   */
+  private startSilenceWatch(): void {
+    this.stopSilenceWatch();
     if (this.ended) return;
-
-    /**
-     * The clock starts when the agent stops talking, not when it stops thinking.
-     *
-     * This used to be armed the moment the model returned — while the reply was
-     * still playing. Any answer that took longer than the silence window to
-     * speak would reprompt the caller over the top of its own sentence, and the
-     * second reprompt ended the call outright. Pre-synthesized phrases made it
-     * easy to hit, but the bug was always there: a caller listening is not a
-     * caller who has gone quiet.
-     */
-    if (this.playback.isPlaying) {
-      void this.playback.whenDrained().then(() => {
-        if (!this.ended && !this.busy) this.armSilenceTimer();
-      });
-      return;
-    }
-
-    const wait = this.options.silenceMs ?? DEFAULT_SILENCE_MS;
-    this.silenceTimer = setTimeout(() => void this.onSilence(), wait);
+    this.lastAudibleAt = Date.now();
+    const every = Math.max(25, Math.min(250, Math.floor(this.repromptAfterMs / 4)));
+    this.silenceTimer = setInterval(() => this.checkSilence(), every);
   }
 
-  private clearSilenceTimer(): void {
-    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+  private stopSilenceWatch(): void {
+    if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = undefined;
+  }
+
+  /** True while the agent is doing anything the caller should wait through. */
+  private get agentBusy(): boolean {
+    return this.busy || this.pendingSpeech > 0 || this.playback.isPlaying;
+  }
+
+  private checkSilence(): void {
+    if (this.ended) return;
+
+    // Measured from the last moment anyone was audible, not from the first
+    // tick that noticed the quiet, so the delay is accurate to one tick
+    // rather than rounded up to one.
+    if (this.agentBusy) {
+      this.lastAudibleAt = Date.now();
+      return;
+    }
+    if (Date.now() - this.lastAudibleAt < this.repromptAfterMs) return;
+
+    this.lastAudibleAt = Date.now();
+    void this.onSilence();
+  }
+
+  /** The caller is speaking, or just did: the line is not quiet. */
+  private noteCallerActivity(): void {
+    this.lastAudibleAt = Date.now();
   }
 
   private async onSilence(): Promise<void> {
     if (this.ended || this.busy) return;
-    const limit = this.options.maxSilencePrompts ?? DEFAULT_MAX_SILENCE_PROMPTS;
+    const limit = this.maxReprompts;
 
     if (this.silencePrompts < limit) {
       this.silencePrompts++;
-      await this.speak(STILL_THERE[this.language]);
-      this.armSilenceTimer();
+      const text = this.repromptText();
+      this.options.logger.info(
+        {
+          callRef: this.options.callRef,
+          attempt: this.silencePrompts,
+          of: limit,
+          afterMs: this.repromptAfterMs,
+          text,
+        },
+        'reprompting after silence',
+      );
+      await this.speak(text);
+      this.startSilenceWatch();
       return;
     }
 
-    // Reprompted and still nothing: offer a callback and hang up cleanly
-    // rather than holding an empty line open.
+    // Reprompted to the limit and still nothing: offer a callback and hang up
+    // cleanly rather than holding an empty line open indefinitely.
+    this.options.logger.info(
+      { callRef: this.options.callRef, reprompts: this.silencePrompts },
+      'no answer after every reprompt — offering a callback and ending',
+    );
     this.state.outcome ??= 'abandoned';
     await this.speak(CALLBACK_OFFER[this.language]);
     await this.playback.whenDrained();

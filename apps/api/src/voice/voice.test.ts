@@ -28,7 +28,7 @@ import {
 } from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
-import { FILLERS } from './phrases.js';
+import { FILLERS, REPROMPTS } from './phrases.js';
 import { phraseRequest, SpeechCache } from './speech-cache.js';
 import { decodeClientState, encodeClientState, TelnyxProvider, telnyxMediaProtocol } from './telnyx.js';
 import { warmBusiness, warmRequests } from './warm.js';
@@ -74,8 +74,11 @@ class FakeTts implements ITextToSpeech {
   public failNext = false;
   /** Frames per utterance. One drains instantly; more simulates real speech. */
   public frames = 1;
+  /** Azure takes a few hundred ms per sentence; instant synthesis hides bugs. */
+  public delayMs = 0;
 
   async synthesize(request: SynthesisRequest): Promise<Buffer> {
+    if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs));
     if (this.failNext) {
       this.failNext = false;
       throw new Error('synthesis exploded');
@@ -414,18 +417,47 @@ describe('a call', () => {
     await h.session.stop('test');
   });
 
-  it('reprompts on silence, then offers a callback and hangs up', async () => {
-    const h = makeSession(new ScriptedLanguageModel([]));
+  it('escalates through the reprompts, then offers a callback and hangs up', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]), { silenceMs: 60 });
     await h.session.start();
     h.provider.tts.spoken.length = 0;
 
-    await settle(70);
-    expect(h.provider.tts.spoken.map((s) => s.text)).toContain('Сè уште сте тука?');
+    await settle(120);
+    const first = h.provider.tts.spoken.map((s) => s.text);
+    expect(first).toContain(REPROMPTS.mk[0]);
 
-    await settle(90);
+    await settle(140);
+    const second = h.provider.tts.spoken.map((s) => s.text);
+    // Not the same sentence twice: repeating verbatim is what makes it read
+    // as a stuck loop rather than a person checking in.
+    expect(second).toContain(REPROMPTS.mk[1]);
+    expect(REPROMPTS.mk[0]).not.toBe(REPROMPTS.mk[1]);
+
+    await settle(160);
     const said = h.provider.tts.spoken.map((s) => s.text).join(' ');
     expect(said).toContain('колега да ви се јави');
     expect(h.hangUps).toBe(1);
+  });
+
+  it('waits the configured time before checking in, measured from the last audio', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]), { silenceMs: 300 });
+    h.provider.tts.frames = 40; // a greeting with real length
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+    const quietFrom = Date.now();
+
+    // Well before the window: nothing yet.
+    await settle(150);
+    expect(h.provider.tts.spoken).toHaveLength(0);
+
+    while (h.provider.tts.spoken.length === 0 && Date.now() - quietFrom < 2000) {
+      await settle(20);
+    }
+    const waited = Date.now() - quietFrom;
+    expect(h.provider.tts.spoken[0]!.text).toBe(REPROMPTS.mk[0]);
+    // Allow a tick of slack either side, but it must not fire early.
+    expect(waited).toBeGreaterThanOrEqual(280);
+    await h.session.stop('test');
   });
 
   it('speaks and offers a human when recognition fails', async () => {
@@ -1073,6 +1105,78 @@ describe('speech tuning', () => {
       endSilenceMs: 905,
       configuredSilenceMs: 900,
     });
+    await h.session.stop('test');
+  });
+});
+
+// --- reprompt timing ---------------------------------------------------------
+
+/** Streams several sentences with a gap, the way a real model does. */
+class StreamingModel implements ILanguageModel {
+  constructor(
+    private readonly sentences: string[],
+    private readonly gapMs: number,
+  ) {}
+
+  async complete(request: ModelRequest): Promise<Anthropic.Message> {
+    for (const [index, sentence] of this.sentences.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, this.gapMs));
+      request.onTextDelta?.(`${sentence} `);
+    }
+    const text = this.sentences.join(' ');
+    return {
+      id: 'msg_stream',
+      type: 'message',
+      role: 'assistant',
+      model: 'test',
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 0, output_tokens: 0 } as Anthropic.Usage,
+      content: [{ type: 'text', text, citations: null } as Anthropic.ContentBlock],
+    } as Anthropic.Message;
+  }
+}
+
+describe('reprompt timing', () => {
+  it('does not start the clock in the gap between streamed sentences', async () => {
+    /**
+     * The playback queue empties between sentences while the next one is still
+     * being synthesized, so `isPlaying` goes false mid-reply. Arming the clock
+     * there starts counting the caller's "silence" while the agent is still
+     * talking, and the reprompt lands moments after it stops — which is what
+     * makes it feel like it is talking over you rather than waiting.
+     */
+    /**
+     * The turn finishes while later sentences are still being synthesized.
+     *
+     * That is the real shape of it: `handleTurn` returns once the model has
+     * finished generating, but each sentence still needs an Azure round trip
+     * before it can be queued. The playback queue is empty in those gaps, so
+     * anything that equates "nothing playing" with "the caller has gone quiet"
+     * starts the clock while the agent is mid-reply — and the reprompt lands
+     * on top of its own next sentence.
+     */
+    const h = makeSession(new StreamingModel(['Прво.', 'Второ.', 'Трето.'], 400), {
+      silenceMs: 100,
+      frameIntervalMs: 1,
+    });
+    h.provider.tts.frames = 5;
+    h.provider.tts.delayMs = 300;
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('Сакам термин.', 0.95, 'mk');
+    // Past the last sentence being emitted, and into the window where its
+    // synthesis is still in flight with the playback queue already empty.
+    await settle(1100);
+
+    /**
+     * Assert on the decision, not on the audio. The reprompt's own synthesis
+     * takes long enough that checking `tts.spoken` passes even when the agent
+     * has already decided to talk over itself twice.
+     */
+    const reprompts = h.logs.filter((l) => l.message === 'reprompting after silence');
+    expect(reprompts).toHaveLength(0);
     await h.session.stop('test');
   });
 });

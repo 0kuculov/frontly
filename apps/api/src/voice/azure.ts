@@ -183,7 +183,15 @@ class AzureSpeechToText implements ISpeechToText {
      * covers the caller's opening words. A weight above 1.0 leans harder on
      * the list, which is what a narrow domain over 8 kHz wants.
      */
-    if (options.phrases && options.phrases.length > 0) {
+    /**
+     * OFF by default, and skipped in code rather than by passing weight 0.
+     *
+     * Weight is inert: 0.5, 1.0, 1.5 and 2.0 all produced byte-identical
+     * output in the sweep, so `setWeight(0)` cannot be trusted to mean "no
+     * bias" either. The only reliable way to not have a phrase list is to not
+     * attach one. See phraseListWeight in @frontly/shared for the numbers.
+     */
+    if (options.phrases && options.phrases.length > 0 && recognition.phraseListWeight > 0) {
       const grammar = sdk.PhraseListGrammar.fromRecognizer(this.recognizer);
       grammar.addPhrases(options.phrases);
       grammar.setWeight(recognition.phraseListWeight);

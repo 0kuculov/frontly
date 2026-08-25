@@ -178,6 +178,25 @@ add drizzle to the API.
   The build compiles only `src/` into `dist/`, which left `scripts/` and
   `*.test.ts` unchecked — two scripts with unterminated string literals passed
   a green `pnpm typecheck` and only failed when tsx ran them.
+- **There are two "time to first audio" numbers and only one is the caller's.**
+  The per-turn log line (`toFirstAudioMs`, ~805ms, suspiciously constant) is
+  measured from `turnStartedAt` — *after* Azure has finalized. It is also just
+  **the filler firing on schedule**: `DEFAULT_FILLER_AFTER_MS` is 800, so this
+  number is a floor by construction and says nothing about model speed. The
+  simulator's summary measures last caller frame → first reply frame, which is
+  what the caller actually experiences: **~1480ms average**. They differ by the
+  608-728ms Azure spends finalizing, and they sum. Neither is wrong; quoting the
+  805ms as the caller's latency is.
+  - A number that *improved* here was the warning sign: the phrase list made
+    the summary look better (1142ms) purely by truncating utterances so Azure
+    finalized early. Fixing recognition made the honest number worse.
+  - **The segmentation timeout did NOT show up in this measurement** — 400ms and
+    900ms produced the same end-to-end figure. That most likely means the
+    simulator cannot see it, because injected TTS audio carries its own trailing
+    silence and the timer expires before the last frame is written. Do not read
+    it as evidence that segmentation is free on a real call, where the caller's
+    pause is real time. It does mean **`simulate:call` cannot measure this
+    tradeoff** — only a real call can.
 - **Time-to-first-token dominates voice latency**, not sentence length. Measured
   on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
   fix a slow first token — only a faster model, a shorter system prompt, or a
@@ -249,13 +268,33 @@ add drizzle to the API.
   (bounded) for the speech cache to finish warming. Past the bound it answers
   anyway and says so — on-demand synthesis is a real audio path, one Azure
   round trip slower, and it is what the session already falls back to.
-- **Recognition is biased with a phrase list built from the business row.**
-  `recognitionPhrases()` in core returns the clinic's services, staff, days,
-  months, clock words and booking phrases (~120 for the demo clinic, Azure's
-  ceiling is 500) and `PhraseListGrammar` applies them at weight 1.5. A
-  receptionist for one clinic hears a tiny vocabulary; a general model has to
-  guess among all of Macedonian, over 8kHz, sometimes through a second VoIP
-  transcode. Tunable with `tune:speech --phrase-weight`.
+- **The Azure phrase list is OFF, because it was measured and it is harmful.**
+  It seemed obviously right — a receptionist for one clinic hears a tiny
+  vocabulary, while a general model guesses among all of Macedonian over 8kHz.
+  It made recognition worse. The 119-phrase list **truncated recognition at the
+  first list entry it matched**: the greeting came back as "Добар ден." (an
+  entry) at confidence **0.19 against 0.83** with no list, and likewise on three
+  separate utterances. That is a decoder being constrained, not biased.
+  - **The weight is inert.** 0.5, 1.0, 1.5 and 2.0 gave byte-identical output,
+    so there is no value to tune to — and `setWeight(0)` cannot be trusted to
+    mean "off" either. The list is skipped in code, not by passing weight 0.
+  - **Nothing ever beat the baseline.** The best any configuration managed was
+    **+0.00**: identical text, identical confidence.
+  - What truncates is *volume × shortness*. The 102 entries of 1-2 words cost
+    -0.58 to -0.63 on their own; the 17 of 3+ words were harmless; a 9-entry
+    list of just staff and service names truncated nothing — but still scored
+    +0.00 on "Сакам термин кај доктор Ана Смилевска…", the exact utterance a
+    name list exists for. The safe configurations are worthless and the
+    substantial ones are destructive.
+  - **This caused the fragmenting, not segmentation.** "Добар ден, сакам да
+    закажам стоматолошки преглед" arrived as two turns because the decoder
+    stopped at a list entry. With the list off it is one turn, confidence 0.88.
+  - **Confidence does not catch it.** The truncated booking sentence scored
+    0.87 against a correct 0.88 — butchered text, healthy score — so every
+    low-confidence defence is blind to this failure.
+  `recognitionPhrases()` still exists and is still passed; only the weight gates
+  it. `pnpm --filter @frontly/api sweep:phrases` re-measures the whole grid.
+  Re-run it before assuming any of this holds for sq-AL, en-US or a new SDK.
 - **The repeat-after-a-mishearing loop was NOT the reprompt timer.** Every
   low-confidence result spoke the same apology, uncapped: `lowConfidenceStreak
   >= 2` set an outcome field and changed no behaviour whatsoever. On a poor

@@ -15,7 +15,8 @@
     "clean": "rm -rf dist *.tsbuildinfo",
     "verify:telnyx": "tsx scripts/verify-telnyx.ts",
     "bench:latency": "tsx scripts/bench-latency.ts",
-    "tune:speech": "tsx scripts/tune-speech.ts"
+    "tune:speech": "tsx scripts/tune-speech.ts",
+    "sweep:phrases": "tsx scripts/sweep-phrases.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

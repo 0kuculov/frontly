@@ -81,12 +81,33 @@ export const recognitionConfigSchema = z.object({
   /**
    * How hard to bias recognition towards the business's own vocabulary.
    *
-   * Azure's range is 0.0-2.0, 1.0 being neutral and 0 disabling the phrase
-   * list. Biased above neutral by default because the vocabulary here really
-   * is tiny and the audio really is 8 kHz — but too high starts hearing
-   * service names in noise, so it is tunable by ear like the rest.
+   * **Defaults to 0 — OFF — because it was measured and it is actively
+   * harmful on mk-MK.** Azure's documented range is 0.0-2.0; 0 disables it.
+   *
+   * The 119-phrase clinic list truncated recognition at the first list entry
+   * it matched. "Добар ден, се јавивте во Дентал Охрид. Како можам да ви
+   * помогнам?" came back as "Добар ден." — an entry in the list — at
+   * confidence 0.19 against 0.83 with no list. Three utterances, same result.
+   *
+   * Two things make this a disable rather than a retune:
+   *   - The weight does nothing. 0.5, 1.0, 1.5 and 2.0 produce byte-identical
+   *     output, so `setWeight` is inert here and there is no value to tune to.
+   *   - Nothing ever beat the baseline. The best any configuration managed was
+   *     +0.00 — identical text, identical confidence.
+   *
+   * What truncates is a large list of short generic phrases: the 102 entries of
+   * 1-2 words cost -0.58 to -0.63 on their own, while the 17 entries of 3+
+   * words were harmless. It is volume combined with shortness rather than
+   * shortness alone — a 9-entry list of just staff and service names did not
+   * truncate anything. But it did not help either: +0.00 even on "Сакам термин
+   * кај доктор Ана Смилевска…", the exact utterance a name list exists for.
+   *
+   * So there is no setting worth shipping — the safe configurations are
+   * worthless and the substantial ones are destructive.
+   * `pnpm --filter @frontly/api sweep:phrases` re-measures it; worth re-running
+   * against sq-AL, en-US, or a future SDK before assuming this still holds.
    */
-  phraseListWeight: z.number().min(0).max(2).default(1.5),
+  phraseListWeight: z.number().min(0).max(2).default(0),
   /**
    * Below this recognition confidence the agent admits it did not catch it
    * rather than answering something the caller did not say.

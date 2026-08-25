@@ -30,7 +30,7 @@ import {
  *   pnpm --filter @frontly/api tune:speech --barge-in 500 --barge-in-chars 3
  *   pnpm --filter @frontly/api tune:speech --strategy Semantic
  *   pnpm --filter @frontly/api tune:speech --reprompt-after 6000
- *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.8
+ *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.0   # OFF by default: measured harmful, see sweep:phrases
  *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
  *   pnpm --filter @frontly/api tune:speech --silent-low-confidence 1
  *   pnpm --filter @frontly/api tune:speech --low-confidence-hold 600

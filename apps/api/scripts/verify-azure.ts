@@ -70,8 +70,15 @@ async function recognize(audio: Buffer, languages: Language[]): Promise<Transcri
       for (let offset = 0; offset < audio.length; offset += 160) {
         stt.write(audio.subarray(offset, offset + 160));
       }
-      // Trailing silence so Azure decides the utterance has ended.
-      stt.write(Buffer.alloc(8000, 0xff));
+      /**
+       * Trailing silence so Azure decides the utterance has ended.
+       *
+       * Must comfortably exceed the segmentation timeout, which is now tuned
+       * per business and can be raised well above the old default. Three
+       * seconds leaves room for that; one second used to sit only just past
+       * it, which is a test that passes until someone tunes by ear.
+       */
+      stt.write(Buffer.alloc(TELEPHONY_SAMPLE_RATE * 3, 0xff));
     });
 
     setTimeout(() => finish(undefined), 15_000);

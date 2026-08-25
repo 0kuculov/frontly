@@ -12,6 +12,7 @@ import { AzureSpeechProvider } from '../src/voice/azure.js';
 import { CallSession } from '../src/voice/session.js';
 import { SpeechCache } from '../src/voice/speech-cache.js';
 import { warmBusiness } from '../src/voice/warm.js';
+import { MULAW_SILENCE } from '../src/voice/audio.js';
 import { FRAME_BYTES } from '../src/voice/types.js';
 
 /**
@@ -67,6 +68,16 @@ provider.createSynthesizer = () => {
 };
 /** The caller gets a different voice from the agent. */
 const CALLER_VOICE = { ...DEFAULT_VOICE_CONFIG.mk, voiceName: 'mk-MK-MarijaNeural' };
+
+/**
+ * How long the line must be quiet before the harness calls a turn finished.
+ *
+ * Must exceed the segmentation timeout: the agent cannot begin answering until
+ * Azure has waited that long for the caller to continue, so a shorter
+ * threshold declares the turn over before it has started and drops the next
+ * caller line on top of the answer.
+ */
+const QUIET_MS = 1600;
 
 const CALLER_TURNS = [
   'Добар ден, сакам да закажам стоматолошки преглед.',
@@ -153,6 +164,26 @@ async function main(): Promise<void> {
   console.log(bold(`\n  Симулиран повик — ${context.business.name}`));
   console.log(dim(`  Azure ${region} · ${new AnthropicLanguageModel().model}\n`));
 
+  /**
+   * A carrier never stops sending.
+   *
+   * Telnyx delivers a 20 ms frame every 20 ms for the whole call, silence
+   * included — the caller not talking is still audio. This simulation used to
+   * simply stop feeding between turns, and Azure's end-of-phrase timer, which
+   * measures silence in the audio it receives, had nothing to measure. Under
+   * the Time segmentation strategy that meant utterances were never finalized
+   * at all: partials arrived, finals never did.
+   *
+   * So the pump runs for the entire call and caller speech is injected into
+   * it, exactly as a real line behaves.
+   */
+  const SILENCE = Buffer.alloc(FRAME_BYTES, MULAW_SILENCE);
+  let injected: Buffer[] = [];
+  const pump = setInterval(() => {
+    const frame = injected.shift() ?? SILENCE;
+    session.onMedia(frame.toString('base64'));
+  }, 20);
+
   const greetingRequestedAt = Date.now();
   await session.start();
   const greetingLatency = firstFrameAt ? firstFrameAt - greetingRequestedAt : undefined;
@@ -165,14 +196,18 @@ async function main(): Promise<void> {
     firstReplyFrameAt = 0;
     lastCallerFrameAt = 0;
 
-    // Feed it exactly as Telnyx would: 20 ms per frame, in real time.
-    let fed = 0;
+    // Hand the speech to the pump; it goes out at 20 ms per frame in place of
+    // the silence that would otherwise be flowing.
+    const frames: Buffer[] = [];
     for (let offset = 0; offset < audio.length; offset += FRAME_BYTES) {
-      session.onMedia(audio.subarray(offset, offset + FRAME_BYTES).toString('base64'));
-      fed++;
-      await sleep(20);
+      frames.push(audio.subarray(offset, offset + FRAME_BYTES));
     }
-    console.log(dim(`             (fed ${fed} frames)`));
+    // `injected = frames` aliases the array the pump drains, so the count has
+    // to be read before it is emptied.
+    const frameCount = frames.length;
+    injected = frames;
+    while (injected.length > 0) await sleep(20);
+    console.log(dim(`             (fed ${frameCount} frames, then silence)`));
     lastCallerFrameAt = Date.now();
 
     // Let the agent finish thinking, then finish speaking, before the next
@@ -180,6 +215,7 @@ async function main(): Promise<void> {
     await waitForQuiet(() => outboundFrames, 30_000, () => session.isThinking);
   }
 
+  clearInterval(pump);
   await session.stop('simulation complete');
 
   // The transcript is the artefact the Phase 4 dashboard reads, and the only
@@ -240,6 +276,7 @@ async function waitForQuiet(
   count: () => number,
   timeoutMs = 20_000,
   thinking: () => boolean = () => false,
+  quietMs = QUIET_MS,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let last = count();
@@ -250,7 +287,7 @@ async function waitForQuiet(
     const now = count();
     if (now === last && !thinking()) {
       quietFor += 100;
-      if (quietFor >= 800) return;
+      if (quietFor >= quietMs) return;
     } else {
       quietFor = 0;
       last = now;

@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
-import type { Channel, ConversationOutcome, Language, Transcript } from '@frontly/shared';
+import type {
+  Channel,
+  ConversationOutcome,
+  Language,
+  Transcript,
+  VoiceConfig,
+} from '@frontly/shared';
 import type { Database } from './client.js';
 import {
   businesses,
@@ -65,6 +71,25 @@ export async function getBusinessForDialledNumber(
   }
   const all = await db.select().from(businesses);
   return all.length === 1 ? all[0] : undefined;
+}
+
+/**
+ * Replace a business's voice configuration.
+ *
+ * Exists so the speech-tuning script can change segmentation and barge-in
+ * thresholds without a deploy: the next call reads the new values. Voice
+ * settings were always per-business config rather than constants precisely so
+ * they could be tuned by ear on a real line.
+ */
+export async function updateVoiceConfig(
+  db: Database,
+  businessId: string,
+  voiceConfig: VoiceConfig,
+): Promise<void> {
+  await db
+    .update(businesses)
+    .set({ voiceConfig, updatedAt: new Date() })
+    .where(eq(businesses.id, businessId));
 }
 
 export async function getBusinessContext(

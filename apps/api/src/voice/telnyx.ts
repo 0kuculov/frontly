@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type {
   AnswerOptions,
   CallRef,
+  CommandOutcome,
   IMediaProtocol,
   ITelephonyProvider,
   MediaMessage,
@@ -179,8 +180,8 @@ export class TelnyxProvider implements ITelephonyProvider {
    * which the caller is connected and hearing nothing, and leaves a window
    * where the greeting can be synthesized before anything can carry it.
    */
-  async answer(options: AnswerOptions): Promise<void> {
-    await this.command(options.callRef, 'answer', this.answerBody(options));
+  async answer(options: AnswerOptions): Promise<CommandOutcome> {
+    return this.command(options.callRef, 'answer', this.answerBody(options));
   }
 
   /**
@@ -255,7 +256,7 @@ export class TelnyxProvider implements ITelephonyProvider {
     callRef: CallRef,
     action: string,
     body: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<CommandOutcome> {
     const response = await this.fetchImpl(
       `${API_BASE}/calls/${encodeURIComponent(callRef)}/actions/${action}`,
       {
@@ -268,16 +269,21 @@ export class TelnyxProvider implements ITelephonyProvider {
       },
     );
 
-    if (response.ok) return;
+    if (response.ok) return 'done';
 
     /**
      * A call that has already ended is not an error worth throwing over: the
      * caller hanging up mid-turn races every command we send, and a rejected
      * hangup on a dead call would otherwise surface as a failed call.
+     *
+     * It is emphatically NOT success either. This used to return the same
+     * nothing as a 200, so a 422 whose body happened to mention the call
+     * ending was reported to the caller of this method as a clean answer —
+     * and the route logged "call answered" for a call it had not answered.
      */
     const text = await response.text().catch(() => '');
     if (response.status === 404 || /call.*(not found|has ended|is not active)/i.test(text)) {
-      return;
+      return 'call_gone';
     }
     throw new Error(`telnyx ${action} failed (HTTP ${response.status}): ${describe(text)}`);
   }

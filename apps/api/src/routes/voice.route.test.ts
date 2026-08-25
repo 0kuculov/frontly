@@ -26,6 +26,8 @@ const publicKeyB64 = publicKey
 let app: FastifyInstance;
 let testDb: TestDatabase;
 let commands: { url: string; body: Record<string, unknown> }[] = [];
+/** Lets one test make the carrier reject the first answer attempt. */
+let failNextAnswer: (() => boolean) | undefined;
 
 /** Speech is irrelevant here; the socket is never opened. */
 const inertSpeech: ISpeechProvider = {
@@ -51,6 +53,9 @@ beforeAll(async () => {
         url: String(url),
         body: JSON.parse(String(init.body)) as Record<string, unknown>,
       });
+      if (String(url).includes('/actions/answer') && failNextAnswer?.()) {
+        return new Response('{"errors":[{"detail":"upstream exploded"}]}', { status: 500 });
+      }
       return new Response('{}', { status: 200 });
     }) as unknown as typeof fetch,
   });
@@ -92,7 +97,9 @@ function post(payload: unknown, options: { sign?: boolean; timestamp?: number } 
   return app.inject({ method: 'POST', url: '/telnyx/voice', headers, payload: raw });
 }
 
-function initiated(to: string) {
+let callSeq = 0;
+
+function initiated(to: string, callRef = `v3:live-call-${++callSeq}`) {
   return {
     data: {
       record_type: 'event',
@@ -100,7 +107,7 @@ function initiated(to: string) {
       id: 'evt-1',
       occurred_at: new Date().toISOString(),
       payload: {
-        call_control_id: 'v3:live-call',
+        call_control_id: callRef,
         call_leg_id: 'leg-1',
         call_session_id: 'sess-1',
         connection_id: '1684641123236054244',
@@ -308,5 +315,39 @@ describe('voice channel boot assertion', () => {
     await expect(built.ready()).rejects.toThrow(/not in the served route tree/);
     await built.close().catch(() => {});
     scratch.cleanup();
+  });
+});
+
+describe('webhook retries', () => {
+  it('answers once when the same call is delivered twice', async () => {
+    // Routine on a cold instance: the first delivery times out while Render is
+    // still starting, so Telnyx redelivers. This used to answer and log twice.
+    commands = [];
+    const event = initiated('+16193497599');
+    await Promise.all([post(event), post(event)]);
+    await settle();
+
+    const answers = commands.filter((c) => c.url.includes('/actions/answer'));
+    expect(answers).toHaveLength(1);
+  });
+
+  it('lets a retry through when the first attempt failed outright', async () => {
+    // Deduping must not turn a transient failure into a call that is never
+    // answered at all.
+    commands = [];
+    let attempt = 0;
+    failNextAnswer = () => {
+      attempt++;
+      return attempt === 1;
+    };
+
+    const event = initiated('+16193497599');
+    await post(event);
+    await settle();
+    await post(event);
+    await settle();
+
+    failNextAnswer = undefined;
+    expect(commands.filter((c) => c.url.includes('/actions/answer'))).toHaveLength(2);
   });
 });

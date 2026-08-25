@@ -22,13 +22,74 @@ export const voiceProfileSchema = z.object({
 
 export type VoiceProfile = z.infer<typeof voiceProfileSchema>;
 
+/**
+ * When Azure decides the caller has stopped talking, and when the caller is
+ * allowed to stop the agent.
+ *
+ * Both are tuning knobs that can only really be set by ear on a real line, so
+ * they live in per-business config rather than as constants: changing one is a
+ * database write that the next call picks up, with no restart and no deploy.
+ *
+ * The default that shipped first was Azure's own 500 ms, which treats an
+ * ordinary mid-sentence pause as end-of-turn. On a real call the agent talked
+ * over the caller constantly.
+ */
+export const recognitionConfigSchema = z.object({
+  /**
+   * "Time"     — silence-based, and the only strategy that honours the
+   *              timeout below. This is the tunable one.
+   * "Default"  — the service's own strategy; the silence timeout is advisory.
+   * "Semantic" — an AI model infers phrase boundaries from meaning rather
+   *              than from silence. No parameters. Worth trying if tuning by
+   *              ear does not converge, but unverified for mk-MK.
+   */
+  segmentationStrategy: z.enum(['Default', 'Time', 'Semantic']).default('Time'),
+  /**
+   * Silence inside a phrase before Azure calls it finished. Azure's range is
+   * 100-5000 ms and its default is 500 ms, which is far too eager for someone
+   * thinking about a date.
+   */
+  segmentationSilenceMs: z.number().int().min(100).max(5000).default(900),
+  /**
+   * Hard cap on a single phrase, so a caller who never pauses still gets
+   * transcribed. Azure's range is 20000-70000 ms.
+   */
+  segmentationMaximumMs: z.number().int().min(20_000).max(70_000).default(30_000),
+  /**
+   * Sustained speech required before the agent stops talking.
+   *
+   * Azure raises speech-start on energy alone, so a cough or a door used to
+   * cut the agent off mid-sentence. Barge-in now waits for either this much
+   * continuous speech or a partial transcript with real words in it.
+   */
+  bargeInMs: z.number().int().min(0).max(3000).default(350),
+  /** Characters in a partial transcript that count as actually talking. */
+  bargeInMinChars: z.number().int().min(0).max(40).default(2),
+});
+
+export type RecognitionConfig = z.infer<typeof recognitionConfigSchema>;
+
+export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig =
+  recognitionConfigSchema.parse({});
+
 export const voiceConfigSchema = z.object({
   mk: voiceProfileSchema,
   sq: voiceProfileSchema,
   en: voiceProfileSchema,
+  /**
+   * Optional so every row seeded before this existed still parses; absent
+   * means the defaults above.
+   */
+  recognition: recognitionConfigSchema.optional(),
 });
 
 export type VoiceConfig = z.infer<typeof voiceConfigSchema>;
+
+/** The recognition settings for a business, falling back to the defaults. */
+export function recognitionFor(config: VoiceConfig | null | undefined): RecognitionConfig {
+  const parsed = recognitionConfigSchema.safeParse(config?.recognition ?? {});
+  return parsed.success ? parsed.data : DEFAULT_RECOGNITION_CONFIG;
+}
 
 /**
  * Tested defaults. mk-MK settings are the ones chosen on real calls; sq-AL is

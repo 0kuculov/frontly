@@ -1,4 +1,4 @@
-import type { Language, VoiceProfile } from '@frontly/shared';
+import type { Language, RecognitionConfig, VoiceProfile } from '@frontly/shared';
 
 /**
  * Speech providers behind interfaces.
@@ -37,12 +37,30 @@ export interface TranscriptionResult {
   confidence: number;
   /** Present only when auto-detection ran, i.e. on the first utterance. */
   detectedLanguage?: Language | undefined;
+  /**
+   * How long the caller was silent before this was called final, measured from
+   * the recognizer's own speech-end event.
+   *
+   * The number to look at when the agent interrupts: if it sits at the
+   * configured segmentation timeout, the timeout is too low for this speaker.
+   */
+  endSilenceMs?: number | undefined;
+  /** Length of the recognized audio, from Azure's own offsets. */
+  utteranceMs?: number | undefined;
 }
 
 export interface SpeechToTextHandlers {
-  /** Fired while the caller is still speaking — drives barge-in. */
+  /**
+   * Azure heard energy. NOT a turn, and not on its own a reason to stop
+   * talking — it fires for a cough. Barge-in confirms with onPartial.
+   */
   onSpeechStarted?: () => void;
-  /** Interim hypothesis; not stable enough to act on. */
+  /** Azure decided the energy stopped. Cancels a pending barge-in. */
+  onSpeechEnded?: () => void;
+  /**
+   * Interim hypothesis. Never starts a turn — only a final result does — but
+   * real words here are what confirms the caller is genuinely speaking.
+   */
   onPartial?: (text: string) => void;
   /** A finished utterance. */
   onFinal: (result: TranscriptionResult) => void;
@@ -71,6 +89,10 @@ export interface SpeechToTextOptions {
    */
   languages: Language[];
   handlers: SpeechToTextHandlers;
+  /** Segmentation tuning. Omitted means the shared defaults. */
+  recognition?: RecognitionConfig | undefined;
+  /** Somewhere to report what each finalization was triggered by. */
+  onDiagnostic?: ((payload: Record<string, unknown>, message: string) => void) | undefined;
 }
 
 export interface ISpeechProvider {

@@ -1,5 +1,11 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
-import { AZURE_LOCALE, buildSsml, parseLanguageTag, type Language } from '@frontly/shared';
+import {
+  AZURE_LOCALE,
+  buildSsml,
+  DEFAULT_RECOGNITION_CONFIG,
+  parseLanguageTag,
+  type Language,
+} from '@frontly/shared';
 import {
   TELEPHONY_SAMPLE_RATE,
   type ISpeechProvider,
@@ -103,6 +109,8 @@ class AzureSpeechToText implements ISpeechToText {
    * detection runs on. So buffer until it is ready.
    */
   private started = false;
+  /** Set by speechEndDetected, read to measure the finalizing silence. */
+  private speechEndedAt: number | undefined;
   private pending: ArrayBuffer[] = [];
   /** 10 seconds of frames — vastly more than startup needs, still bounded. */
   private static readonly MAX_PENDING_FRAMES = 500;
@@ -124,6 +132,33 @@ class AzureSpeechToText implements ISpeechToText {
     );
     this.pushStream = sdk.AudioInputStream.createPushStream(format);
     const audioConfig = sdk.AudioConfig.fromStreamInput(this.pushStream);
+
+    /**
+     * When Azure decides the caller has finished.
+     *
+     * Its default segmentation ends a phrase after 500 ms of silence, which is
+     * shorter than the pause someone takes while working out which day suits
+     * them — so the agent answered a half-finished sentence and talked over
+     * the rest. The silence timeout is only honoured under the "Time"
+     * strategy, so the strategy is set explicitly rather than left to default.
+     */
+    const recognition = options.recognition ?? DEFAULT_RECOGNITION_CONFIG;
+    config.setProperty(
+      sdk.PropertyId.Speech_SegmentationStrategy,
+      recognition.segmentationStrategy,
+    );
+    if (recognition.segmentationStrategy === 'Time') {
+      config.setProperty(
+        sdk.PropertyId.Speech_SegmentationSilenceTimeoutMs,
+        String(recognition.segmentationSilenceMs),
+      );
+      // Azure requires the silence timeout to be set before it honours this,
+      // and it caps a caller who never pauses for breath.
+      config.setProperty(
+        sdk.PropertyId.Speech_SegmentationMaximumTimeMs,
+        String(recognition.segmentationMaximumMs),
+      );
+    }
 
     const locales = options.languages.map((l) => AZURE_LOCALE[l]);
 
@@ -157,23 +192,61 @@ class AzureSpeechToText implements ISpeechToText {
 
   private wireHandlers(options: SpeechToTextOptions): void {
     const { handlers } = options;
+    const recognition = options.recognition ?? DEFAULT_RECOGNITION_CONFIG;
 
-    // Fires the moment Azure hears speech — the barge-in trigger.
-    this.recognizer.speechStartDetected = () => handlers.onSpeechStarted?.();
+    // Energy, not words. Enough to arm barge-in, never enough to confirm it.
+    this.recognizer.speechStartDetected = () => {
+      this.speechEndedAt = undefined;
+      handlers.onSpeechStarted?.();
+    };
+
+    this.recognizer.speechEndDetected = () => {
+      this.speechEndedAt = Date.now();
+      handlers.onSpeechEnded?.();
+    };
 
     this.recognizer.recognizing = (_sender, event) => {
       if (event.result.text) handlers.onPartial?.(event.result.text);
     };
 
+    /**
+     * Only a final result starts a turn.
+     *
+     * `recognizing` fires continuously with unstable hypotheses; acting on one
+     * would answer a sentence the caller is halfway through saying. This
+     * handler is the single path to onFinal, and it accepts nothing but
+     * RecognizedSpeech.
+     */
     this.recognizer.recognized = (_sender, event) => {
       const { result } = event;
       if (result.reason !== sdk.ResultReason.RecognizedSpeech) return;
       if (!result.text.trim()) return;
 
+      // How long the line was quiet before Azure called it. If this equals the
+      // configured timeout on a turn that felt interrupted, the timeout is too
+      // low for this speaker — which is the whole point of logging it.
+      const endSilenceMs = this.speechEndedAt ? Date.now() - this.speechEndedAt : undefined;
+      const utteranceMs = Number(result.duration) / 10_000 || undefined;
+
+      options.onDiagnostic?.(
+        {
+          text: result.text.trim(),
+          confidence: extractConfidence(result),
+          endSilenceMs,
+          utteranceMs: utteranceMs ? Math.round(utteranceMs) : undefined,
+          configuredSilenceMs: recognition.segmentationSilenceMs,
+          strategy: recognition.segmentationStrategy,
+        },
+        'utterance finalized',
+      );
+
+      this.speechEndedAt = undefined;
       handlers.onFinal({
         text: result.text.trim(),
         confidence: extractConfidence(result),
         detectedLanguage: extractLanguage(result, options.languages),
+        endSilenceMs,
+        ...(utteranceMs ? { utteranceMs: Math.round(utteranceMs) } : {}),
       });
     };
 

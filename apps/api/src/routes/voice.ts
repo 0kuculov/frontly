@@ -27,10 +27,30 @@ export interface VoiceRoutesOptions {
   speech: ISpeechProvider;
   /** Pre-synthesized fixed phrases: the greeting, the fillers, the apologies. */
   cache?: SpeechCache | undefined;
+  /**
+   * Resolves when the speech cache has finished warming.
+   *
+   * Awaited before answering, because a cold Render instance finishes warming
+   * after the first caller has already dialled.
+   */
+  speechReady?: Promise<unknown> | undefined;
+  /** How long to wait for that before answering anyway. */
+  speechReadyTimeoutMs?: number;
 }
 
 export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, opts) => {
   const { db, env, telephony, speech, cache } = opts;
+  const speechReadyTimeoutMs = opts.speechReadyTimeoutMs ?? 8000;
+
+  /**
+   * Calls already being answered in this process.
+   *
+   * Webhook delivery retries — routine on a cold instance, where the first
+   * request times out while Render is still starting — used to answer and log
+   * twice for one call. `command_id` makes Telnyx discard the duplicate
+   * command, but only this stops the duplicate log.
+   */
+  const answering = new Set<string>();
   const model = new AnthropicLanguageModel({ model: env.ANTHROPIC_MODEL });
 
   /**
@@ -76,6 +96,16 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
      */
     switch (event.type) {
       case 'call.initiated': {
+        if (answering.has(event.callRef)) {
+          app.log.info(
+            { callRef: event.callRef },
+            'ignoring a duplicate call.initiated — already answering this call',
+          );
+          break;
+        }
+        answering.add(event.callRef);
+        // Bounded: a long-lived instance must not accumulate call refs.
+        if (answering.size > 500) answering.delete(answering.values().next().value!);
         void answerCall(event.callRef, event.from, event.to);
         break;
       }
@@ -130,9 +160,33 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
       const base = env.PUBLIC_BASE_URL;
       if (!base) throw new Error('PUBLIC_BASE_URL is not set, so the stream URL cannot be built');
 
+      /**
+       * Never answer into a pipeline that cannot speak.
+       *
+       * On a cold instance the first caller arrives while the speech cache is
+       * still warming. Waiting costs a second or two of ringing; answering
+       * early costs the greeting. If warming is slower than the bound, we go
+       * ahead anyway and say so — on-demand synthesis is a real audio path,
+       * just an Azure round trip slower, and it is what the session already
+       * falls back to when the cache misses.
+       */
+      if (opts.speechReady) {
+        const warmedInTime = await Promise.race([
+          opts.speechReady.then(() => true).catch(() => false),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), speechReadyTimeoutMs)),
+        ]);
+        if (!warmedInTime) {
+          app.log.warn(
+            { callRef, waitedMs: speechReadyTimeoutMs },
+            'answering before the speech cache finished warming — the greeting will be ' +
+              'synthesized on demand, which is slower but not silent',
+          );
+        }
+      }
+
       const streamUrl = `${base.replace(/^http/, 'ws')}${telephony.routePrefix}/stream`;
 
-      await telephony.answer({
+      const outcome = await telephony.answer({
         callRef,
         streamUrl,
         // Carried by the provider across to the media socket, which is a
@@ -145,11 +199,24 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
       });
 
       /**
-       * The stream parameters are logged, not just the fact of answering.
-       * `stream_track` and `stream_bidirectional_target_legs` are the two
-       * settings that produce a connected-but-silent call, and this is the
-       * line that says which values were in play when that happens.
+       * Logged only when the command actually succeeded.
+       *
+       * This used to fire unconditionally after `answer` resolved, and
+       * `answer` resolved even when the carrier had rejected the command —
+       * so the log read "call answered" for a call that was never answered.
+       *
+       * The stream parameters go in the same line because `stream_track` and
+       * `stream_bidirectional_target_legs` are the two settings that produce a
+       * connected-but-silent call.
        */
+      if (outcome === 'call_gone') {
+        app.log.warn(
+          { callRef, from, to },
+          'the caller hung up before we could answer',
+        );
+        return;
+      }
+
       app.log.info(
         {
           callRef,
@@ -161,6 +228,13 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
         'call answered',
       );
     } catch (error) {
+      /**
+       * Release the call ref so a webhook retry can try again.
+       *
+       * The dedupe above exists to stop a retry answering twice; it must not
+       * stop a retry answering at all when the first attempt never got there.
+       */
+      answering.delete(callRef);
       app.log.error(
         { callRef, err: error instanceof Error ? error.message : error },
         'failed to answer the call',

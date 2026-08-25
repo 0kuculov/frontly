@@ -19,7 +19,13 @@ import {
   type Database,
   type TestDatabase,
 } from '@frontly/core';
-import { DEFAULT_VOICE_CONFIG, type Language } from '@frontly/shared';
+import {
+  DEFAULT_RECOGNITION_CONFIG,
+  DEFAULT_VOICE_CONFIG,
+  recognitionFor,
+  type Language,
+  type RecognitionConfig,
+} from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
 import { FILLERS } from './phrases.js';
@@ -105,10 +111,13 @@ class FakeStt implements ISpeechToText {
 class FakeProvider implements ISpeechProvider {
   public readonly tts = new FakeTts();
   public stt: FakeStt | undefined;
+  /** What the session asked the recognizer for — tuning must reach Azure. */
+  public recognizerOptions: SpeechToTextOptions | undefined;
   createSynthesizer(): ITextToSpeech {
     return this.tts;
   }
   createRecognizer(options: SpeechToTextOptions): ISpeechToText {
+    this.recognizerOptions = options;
     this.stt = new FakeStt(options);
     return this.stt;
   }
@@ -183,6 +192,11 @@ function makeSession(
 }
 
 const settle = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Recognition tuning for a test, over the shared defaults. */
+function bargeIn(overrides: Partial<RecognitionConfig>): RecognitionConfig {
+  return { ...DEFAULT_RECOGNITION_CONFIG, ...overrides };
+}
 
 async function findConversation(callRef: string): Promise<Conversation | undefined> {
   const [row] = await db.select().from(conversations).where(eq(conversations.externalId, callRef));
@@ -299,7 +313,7 @@ describe('a call', () => {
     expect((await findConversation(h.callRef))!.languageDetected).toBe('en');
   });
 
-  it('stops talking the moment the caller starts', async () => {
+  it('stops talking as soon as the caller is confirmed to be speaking', async () => {
     const h = makeSession(new ScriptedLanguageModel([]));
     // A realistic greeting: ~400 frames, so it is still playing when the
     // caller cuts in. With a one-frame greeting there is nothing to interrupt.
@@ -311,7 +325,12 @@ describe('a call', () => {
     await settle(10);
     expect(h.frames.length).toBeGreaterThan(0); // audio is flowing
 
+    // Energy alone only arms it: this could still be a cough.
     h.provider.stt!.handlers.onSpeechStarted?.();
+    expect(h.clears).toBe(0);
+
+    // Words confirm it.
+    h.provider.stt!.handlers.onPartial?.('Извинете');
     const framesAtBargeIn = h.frames.length;
 
     // clear() is the carrier barge-in primitive. Without it the caller keeps
@@ -321,6 +340,61 @@ describe('a call', () => {
     await settle(30);
     // And nothing further goes out: the agent actually stopped.
     expect(h.frames.length).toBe(framesAtBargeIn);
+
+    await started;
+    await h.session.stop('test');
+  });
+
+  it('keeps talking through a cough that never becomes words', async () => {
+    // Azure raises speech-start on energy alone. Treating that as barge-in
+    // meant a door, a car horn or a cough killed the agent mid-sentence.
+    const h = makeSession(new ScriptedLanguageModel([]), { recognition: bargeIn({ bargeInMs: 500 }) });
+    h.provider.tts.frames = 400;
+    const started = h.session.start();
+    await settle(10);
+
+    h.provider.stt!.handlers.onSpeechStarted?.();
+    h.provider.stt!.handlers.onSpeechEnded?.();
+    await settle(40);
+
+    expect(h.clears).toBe(0);
+    expect(h.logs.some((l) => l.message === 'ignored a noise burst that was not speech')).toBe(true);
+
+    await started;
+    await h.session.stop('test');
+  });
+
+  it('gives up waiting and interrupts on sustained speech with no transcript yet', async () => {
+    // Partials can lag. Someone genuinely talking must not have to wait for
+    // Azure to produce words before the agent stops.
+    const h = makeSession(new ScriptedLanguageModel([]), { recognition: bargeIn({ bargeInMs: 20 }) });
+    h.provider.tts.frames = 400;
+    const started = h.session.start();
+    await settle(10);
+
+    h.provider.stt!.handlers.onSpeechStarted?.();
+    expect(h.clears).toBe(0);
+    await settle(60);
+
+    expect(h.clears).toBe(1);
+    await started;
+    await h.session.stop('test');
+  });
+
+  it('ignores a partial too short to be anything but noise', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: bargeIn({ bargeInMs: 500, bargeInMinChars: 4 }),
+    });
+    h.provider.tts.frames = 400;
+    const started = h.session.start();
+    await settle(10);
+
+    h.provider.stt!.handlers.onSpeechStarted?.();
+    h.provider.stt!.handlers.onPartial?.('м');
+    expect(h.clears).toBe(0);
+
+    h.provider.stt!.handlers.onPartial?.('може');
+    expect(h.clears).toBe(1);
 
     await started;
     await h.session.stop('test');
@@ -946,5 +1020,59 @@ describe('playback queue', () => {
 
     const waiters = [queue.whenDrained(), queue.whenDrained(), queue.whenDrained()];
     await expect(Promise.all(waiters)).resolves.toHaveLength(3);
+  });
+});
+
+describe('speech tuning', () => {
+  it('hands the business own segmentation settings to the recognizer', async () => {
+    // Tuned by ear on a real line and stored per business, so a change is a
+    // database write the next call picks up — not a redeploy.
+    const tuned = {
+      ...context.business,
+      voiceConfig: {
+        ...DEFAULT_VOICE_CONFIG,
+        recognition: { ...DEFAULT_RECOGNITION_CONFIG, segmentationSilenceMs: 1400 },
+      },
+    };
+
+    const h = makeSession(new ScriptedLanguageModel([]), { business: tuned });
+    await h.session.start();
+
+    expect(h.provider.recognizerOptions?.recognition).toMatchObject({
+      segmentationSilenceMs: 1400,
+      segmentationStrategy: 'Time',
+    });
+    await h.session.stop('test');
+  });
+
+  it('falls back to the shared defaults for a business configured before this existed', () => {
+    // Rows seeded with only {mk, sq, en} must still parse.
+    expect(recognitionFor({ ...DEFAULT_VOICE_CONFIG })).toEqual(DEFAULT_RECOGNITION_CONFIG);
+    expect(recognitionFor(null)).toEqual(DEFAULT_RECOGNITION_CONFIG);
+    // Azure's own default is 500ms, which is what caused the interruptions.
+    expect(DEFAULT_RECOGNITION_CONFIG.segmentationSilenceMs).toBeGreaterThan(500);
+  });
+
+  it('logs the silence that ended each utterance, next to the text', async () => {
+    const h = makeSession(new ScriptedLanguageModel([scriptedText('Готово.')]), {
+      silenceMs: 5000,
+    });
+    await h.session.start();
+
+    h.provider.stt!.handlers.onFinal({
+      text: 'Утре наутро',
+      confidence: 0.94,
+      endSilenceMs: 905,
+      utteranceMs: 1600,
+    });
+    await settle(60);
+
+    const said = h.logs.find((l) => l.message === 'caller said');
+    expect(said?.payload).toMatchObject({
+      text: 'Утре наутро',
+      endSilenceMs: 905,
+      configuredSilenceMs: 900,
+    });
+    await h.session.stop('test');
   });
 });

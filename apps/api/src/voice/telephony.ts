@@ -52,6 +52,16 @@ export interface WebhookRequest {
   headers: Record<string, string | string[] | undefined>;
 }
 
+/**
+ * What a command actually did.
+ *
+ * Not a boolean, because "the call had already ended" is neither success nor
+ * failure: it is the expected race when a caller hangs up mid-command, and it
+ * must not be logged as though the call were answered. A success log that
+ * fires after a 422 is a log you cannot trust on stage.
+ */
+export type CommandOutcome = 'done' | 'call_gone';
+
 export interface AnswerOptions {
   callRef: CallRef;
   /** wss:// URL of this server's media endpoint. */
@@ -142,8 +152,12 @@ export interface ITelephonyProvider {
 
   parseEvent(body: unknown): TelephonyEvent | undefined;
 
-  /** Answer, and open a bidirectional media stream in the same command. */
-  answer(options: AnswerOptions): Promise<void>;
+  /**
+   * Answer, and open a bidirectional media stream in the same command.
+   *
+   * Resolves with what happened. Anything genuinely wrong throws.
+   */
+  answer(options: AnswerOptions): Promise<CommandOutcome>;
 
   /**
    * End the call.

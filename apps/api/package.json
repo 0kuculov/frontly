@@ -14,7 +14,8 @@
     "simulate:call": "tsx scripts/simulate-call.ts",
     "clean": "rm -rf dist *.tsbuildinfo",
     "verify:telnyx": "tsx scripts/verify-telnyx.ts",
-    "bench:latency": "tsx scripts/bench-latency.ts"
+    "bench:latency": "tsx scripts/bench-latency.ts",
+    "tune:speech": "tsx scripts/tune-speech.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

@@ -124,7 +124,31 @@ export async function buildApp(
     app.log.warn({ missing }, 'voice channel disabled');
   } else {
     const cache = new SpeechCache(speech);
-    await app.register(voiceRoutes, { db, env, telephony, speech, cache });
+
+    /**
+     * Warm in the background, but hand the promise to the routes.
+     *
+     * Awaiting it here would hold the health check behind a handful of Azure
+     * round trips and Render would call that a failed deploy. Handing it over
+     * lets an inbound call wait for the thing it actually needs, without the
+     * whole service waiting for it.
+     */
+    const speechReady =
+      options.warmSpeechCache === false
+        ? Promise.resolve()
+        : warmAllBusinesses(cache, db)
+            .then((result) => {
+              app.log.info(result, 'speech cache warmed');
+              return result;
+            })
+            .catch((error: unknown) => {
+              app.log.warn(
+                { err: error instanceof Error ? error.message : error },
+                'speech cache warming failed — greetings will synthesize on demand',
+              );
+            });
+
+    await app.register(voiceRoutes, { db, env, telephony, speech, cache, speechReady });
     voiceChannel = { carrier: telephony.name, prefix: telephony.routePrefix };
 
     /**
@@ -151,24 +175,6 @@ export async function buildApp(
       }
       app.log.info(voiceChannel ?? {}, 'voice channel registered');
     });
-
-    /**
-     * Warm in the background.
-     *
-     * Awaiting it would hold the health check behind a handful of Azure round
-     * trips, and Render would call that a failed deploy. A call that lands
-     * mid-warm simply synthesizes the greeting the old way.
-     */
-    if (options.warmSpeechCache !== false) {
-      void warmAllBusinesses(cache, db)
-        .then((result) => app.log.info(result, 'speech cache warmed'))
-        .catch((error: unknown) =>
-          app.log.warn(
-            { err: error instanceof Error ? error.message : error },
-            'speech cache warming failed — greetings will synthesize on demand',
-          ),
-        );
-    }
 
     app.addHook('onClose', () => cache.close());
   }

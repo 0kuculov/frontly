@@ -38,6 +38,7 @@ Voice checks (all read-only, none of them place a call):
 ```bash
 pnpm --filter @frontly/api verify:telnyx   # does the account match the code?
 pnpm --filter @frontly/api bench:latency   # p50/p95 per stage of a turn
+pnpm --filter @frontly/api tune:speech     # segmentation/barge-in, no redeploy
 pnpm --filter @frontly/api verify:azure    # real TTS -> STT round trip
 pnpm --filter @frontly/api simulate:call   # a whole call, no phone involved
 pnpm --filter @frontly/core bench          # first-token vs first-sentence
@@ -162,6 +163,53 @@ add drizzle to the API.
   on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
   fix a slow first token — only a faster model, a shorter system prompt, or a
   cache hit can. `pnpm --filter @frontly/core bench` prints the split.
+- **Azure ends a phrase after 500ms of silence by default, which is too
+  eager for a phone call.** That is shorter than the pause a person takes
+  working out which day suits them, so the agent answered half-finished
+  sentences and talked over the rest. Fixed with
+  `Speech_SegmentationSilenceTimeoutMs`, which is **only honoured under
+  `Speech_SegmentationStrategy = "Time"`** — leaving the strategy at Default
+  makes the timeout advisory. Azure's range is 100-5000ms. `"Semantic"` is
+  also available (an AI model infers phrase boundaries, no parameters) and is
+  worth trying if tuning by ear stalls, but is unverified for mk-MK.
+- **The segmentation timeout is a direct addend to perceived latency.** The
+  agent cannot begin answering until Azure has waited that long for the caller
+  to continue. 900ms of silence tolerance is 900ms before the first token is
+  even requested. Fewer interruptions and faster replies are the same dial;
+  `pnpm --filter @frontly/api tune:speech --silence <ms>` writes it to the
+  business row and the next call picks it up, with no restart or deploy.
+- **Only a final recognition result starts a turn.** `recognizing` fires
+  continuously with unstable hypotheses; acting on one answers a sentence the
+  caller is halfway through. Partials are used for one thing only: confirming
+  barge-in.
+- **Barge-in needs confirmation, not energy.** `speechStartDetected` fires for
+  a cough, a door, a car horn — and used to cut the agent off mid-sentence.
+  It now only *arms* the interrupt, which fires on either a partial transcript
+  with real words or sustained speech past `bargeInMs`. `speechEndDetected`
+  before either cancels it.
+- **A simulation that stops sending audio is not a phone call.** Telnyx
+  delivers a 20ms frame every 20ms for the whole call, silence included, and
+  Azure's end-of-phrase timer measures silence *in the audio it receives*.
+  `simulate-call.ts` used to simply stop feeding between turns; once
+  segmentation moved to the Time strategy that meant partials arrived and
+  finals never did, and it looked exactly like a broken config. The simulator
+  now runs a silence pump for the whole call and injects speech into it.
+  Anything waiting on a turn must also wait longer than the segmentation
+  timeout, or it declares the turn over before the agent has begun.
+- **Never log success for a command the carrier rejected.** `command()`
+  swallows "call already ended" because a caller hanging up races every
+  command — but it used to return the same nothing as a 200, so a 422 whose
+  body mentioned the call ending was reported as a clean answer and the route
+  logged `call answered` for a call it never answered. Commands now return
+  `'done' | 'call_gone'` and the log follows the outcome.
+- **Webhook retries are routine on a cold instance**, where the first delivery
+  times out while Render starts. `command_id` stops Telnyx acting twice; an
+  in-process set of call refs stops us *logging* twice. It releases the ref
+  when an attempt fails, or a retry after a real failure could never answer.
+- **Never answer into a pipeline that cannot speak.** An inbound call waits
+  (bounded) for the speech cache to finish warming. Past the bound it answers
+  anyway and says so — on-demand synthesis is a real audio path, one Azure
+  round trip slower, and it is what the session already falls back to.
 - **Azure STT returns no confidence unless `OutputFormat.Detailed` is set.**
   Without it every result scores 1.0 and the low-confidence path can never fire.
 - **Azure's recognizer drops audio written before `startContinuousRecognitionAsync`

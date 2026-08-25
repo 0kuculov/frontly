@@ -14,8 +14,10 @@ import {
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_VOICE_CONFIG,
+  recognitionFor,
   type ConversationOutcome,
   type Language,
+  type RecognitionConfig,
   type TranscriptTurn,
   type VoiceProfile,
 } from '@frontly/shared';
@@ -89,6 +91,8 @@ export interface CallSessionOptions {
   cache?: SpeechCache | undefined;
   /** Play a filler once a turn has been silent this long. */
   fillerAfterMs?: number;
+  /** Overrides the business's own recognition tuning. Tests use it. */
+  recognition?: RecognitionConfig | undefined;
 }
 
 const DEFAULT_SILENCE_MS = 6000;
@@ -116,6 +120,8 @@ export class CallSession {
 
   private conversationId: string | undefined;
   private silenceTimer: NodeJS.Timeout | undefined;
+  /** Armed on speech-start, fired only once the caller is confirmed talking. */
+  private bargeInTimer: NodeJS.Timeout | undefined;
   private silencePrompts = 0;
   private busy = false;
   private pendingUtterance: string | undefined;
@@ -130,7 +136,15 @@ export class CallSession {
   /** Rotates the filler variants so slow turns do not all sound identical. */
   private lastFillerIndex = -1;
 
+  /**
+   * Segmentation and barge-in tuning, read once per call from the business's
+   * own config. Tuning is a database write that the next call picks up — no
+   * restart, no deploy, which is the only way to set these by ear.
+   */
+  private readonly recognition: RecognitionConfig;
+
   constructor(private readonly options: CallSessionOptions) {
+    this.recognition = options.recognition ?? recognitionFor(options.business.voiceConfig);
     this.playback = new PlaybackQueue(options.sink, options.frameIntervalMs ?? 20);
     this.tts = options.provider.createSynthesizer();
     this.language = (options.business.languages[0] as Language | undefined) ?? DEFAULT_LANGUAGE;
@@ -144,8 +158,14 @@ export class CallSession {
 
     this.stt = this.options.provider.createRecognizer({
       languages,
+      recognition: this.recognition,
+      // Straight into the call log: the text, and the silence that ended it.
+      onDiagnostic: (payload, message) =>
+        this.options.logger.info({ callRef: this.options.callRef, ...payload }, message),
       handlers: {
         onSpeechStarted: () => this.onSpeechStarted(),
+        onSpeechEnded: () => this.onSpeechEnded(),
+        onPartial: (text) => this.onPartial(text),
         onFinal: (result) => void this.onUtterance(result),
         onError: (error) => void this.onSttError(error),
       },
@@ -200,6 +220,8 @@ export class CallSession {
     if (this.ended) return;
     this.ended = true;
     this.clearSilenceTimer();
+    if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
+    this.bargeInTimer = undefined;
     this.playback.interrupt();
 
     try {
@@ -226,19 +248,62 @@ export class CallSession {
   // --- speech in -------------------------------------------------------------
 
   /**
-   * Barge-in. The caller has started talking, so stop talking over them —
-   * immediately, not at the end of the current sentence.
+   * Barge-in, armed but not fired.
+   *
+   * Azure raises speech-start on energy alone, so a cough, a door, or a car
+   * horn used to kill the agent mid-sentence. Starting talking now only arms
+   * the interrupt; it fires when the caller is confirmed to be speaking —
+   * either a partial transcript with real words, or sustained energy for
+   * `bargeInMs`. Speech-end before either cancels it.
    */
   private onSpeechStarted(): void {
     this.clearSilenceTimer();
-    if (this.playback.isPlaying) {
-      this.options.logger.info({ callRef: this.options.callRef }, 'barge-in');
-      this.playback.interrupt();
+    if (!this.playback.isPlaying || this.bargeInTimer) return;
+
+    const after = this.recognition.bargeInMs;
+    if (after <= 0) {
+      this.fireBargeIn('immediate');
+      return;
     }
+    this.bargeInTimer = setTimeout(() => this.fireBargeIn('sustained speech'), after);
+  }
+
+  /** Energy stopped before it became words: it was noise, not the caller. */
+  private onSpeechEnded(): void {
+    if (!this.bargeInTimer) return;
+    clearTimeout(this.bargeInTimer);
+    this.bargeInTimer = undefined;
+    this.options.logger.info(
+      { callRef: this.options.callRef },
+      'ignored a noise burst that was not speech',
+    );
+  }
+
+  /**
+   * A partial transcript is not a turn — only a final result is — but real
+   * words in one prove the caller is genuinely talking, which is the fastest
+   * honest confirmation available for barge-in.
+   */
+  private onPartial(text: string): void {
+    if (!this.bargeInTimer) return;
+    if (text.trim().length < this.recognition.bargeInMinChars) return;
+    this.fireBargeIn(`partial: ${text.trim().slice(0, 40)}`);
+  }
+
+  private fireBargeIn(reason: string): void {
+    if (this.bargeInTimer) {
+      clearTimeout(this.bargeInTimer);
+      this.bargeInTimer = undefined;
+    }
+    if (!this.playback.isPlaying) return;
+    this.options.logger.info({ callRef: this.options.callRef, reason }, 'barge-in');
+    this.playback.interrupt();
   }
 
   private async onUtterance(result: TranscriptionResult): Promise<void> {
     if (this.ended) return;
+    // A final result is proof, so anything still playing stops now.
+    this.fireBargeIn('final result');
     this.clearSilenceTimer();
     this.silencePrompts = 0;
 
@@ -272,6 +337,17 @@ export class CallSession {
     }
 
     this.lowConfidenceStreak = 0;
+    this.options.logger.info(
+      {
+        callRef: this.options.callRef,
+        text: result.text,
+        confidence: result.confidence,
+        endSilenceMs: result.endSilenceMs,
+        utteranceMs: result.utteranceMs,
+        configuredSilenceMs: this.recognition.segmentationSilenceMs,
+      },
+      'caller said',
+    );
     this.record({ role: 'customer', text: result.text, confidence: result.confidence });
     await this.runTurn(result.text);
   }

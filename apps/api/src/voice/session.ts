@@ -135,6 +135,14 @@ export class CallSession {
   private pendingUtterance: string | undefined;
   private ended = false;
   private lowConfidenceStreak = 0;
+  /**
+   * Apologies actually spoken, as distinct from low-confidence results seen.
+   * The give-up cap counts these, so a result met with silence never spends one
+   * of the caller's chances.
+   */
+  private lowConfidenceApologies = 0;
+  /** Bumped whenever the caller proves they are still there. See noteCallerActivity. */
+  private callerActivity = 0;
   /** Synthesis time for the most recent sentence, for the latency log. */
   private lastSynthesisMs = 0;
   /** Synthesis time for the FIRST sentence of the current turn. */
@@ -311,6 +319,12 @@ export class CallSession {
    * honest confirmation available for barge-in.
    */
   private onPartial(text: string): void {
+    // Real words in a partial are the strongest evidence available that the
+    // caller is mid-sentence, and it arrives long before the final does. A
+    // pending apology watches this: it is the signal that the low-confidence
+    // result was a fragment of a sentence still being spoken, not a bad line.
+    if (text.trim().length >= this.recognition.bargeInMinChars) this.noteCallerActivity();
+
     if (!this.bargeInTimer) return;
     if (text.trim().length < this.recognition.bargeInMinChars) return;
     this.fireBargeIn(`partial: ${text.trim().slice(0, 40)}`);
@@ -381,6 +395,35 @@ export class CallSession {
       this.record({ role: 'customer', text: result.text, confidence: result.confidence });
 
       /**
+       * Say nothing at all the first time.
+       *
+       * The apology is pre-synthesized, so it lands ~35 ms after the result —
+       * far faster than a person could have understood the sentence. A caller
+       * who paused mid-thought gets finalized on a fragment (which scores badly
+       * BECAUSE it is a fragment, not because the line is bad), and the instant
+       * apology arrives while they are still talking. That derails them into a
+       * disfluent restart, which finalizes as another fragment, which scores
+       * badly again — a loop sustained by timing, which is why no amount of
+       * `--reprompt-after` tuning ever touched it.
+       *
+       * Silence is the fix: a caller mid-sentence who hears nothing simply
+       * carries on, and the next result is a whole sentence that scores fine.
+       * If they really had finished, the reprompt timer is the safety net.
+       */
+      if (this.lowConfidenceStreak <= this.recognition.silentLowConfidenceTurns) {
+        this.options.logger.info(
+          {
+            callRef: this.options.callRef,
+            streak: this.lowConfidenceStreak,
+            silentBudget: this.recognition.silentLowConfidenceTurns,
+          },
+          'low confidence held in silence — may be a fragment of a sentence still being spoken',
+        );
+        this.startSilenceWatch();
+        return;
+      }
+
+      /**
        * Stop retrying a question the line cannot carry.
        *
        * This branch used to speak the same apology on every low-confidence
@@ -389,10 +432,18 @@ export class CallSession {
        * every utterance lands here, so the caller heard one identical sentence
        * over and over. It is not the reprompt timer, which is why tuning the
        * reprompt delay had no effect on it.
+       *
+       * Counts apologies SPOKEN, not results seen: a held result must not spend
+       * one of the caller's chances, or the silent first turn would turn the
+       * ladder into "say nothing, then hang up".
        */
-      if (this.lowConfidenceStreak >= this.recognition.maxLowConfidenceTurns) {
+      if (this.lowConfidenceApologies >= this.recognition.maxLowConfidenceTurns) {
         this.options.logger.warn(
-          { callRef: this.options.callRef, streak: this.lowConfidenceStreak },
+          {
+            callRef: this.options.callRef,
+            streak: this.lowConfidenceStreak,
+            apologies: this.lowConfidenceApologies,
+          },
           'giving up on a line we cannot hear — offering a way out',
         );
         this.state.outcome ??= 'transferred';
@@ -401,12 +452,12 @@ export class CallSession {
         return;
       }
 
-      await this.speak(this.didNotCatchText());
-      this.startSilenceWatch();
+      await this.apologiseUnlessCallerResumes();
       return;
     }
 
     this.lowConfidenceStreak = 0;
+    this.lowConfidenceApologies = 0;
     this.options.logger.info(
       {
         callRef: this.options.callRef,
@@ -648,8 +699,57 @@ export class CallSession {
    */
   private didNotCatchText(): string {
     const variants = DID_NOT_CATCH[this.language];
-    const index = Math.min(Math.max(0, this.lowConfidenceStreak - 1), variants.length - 1);
+    const index = Math.min(Math.max(0, this.lowConfidenceApologies), variants.length - 1);
     return variants[index]!;
+  }
+
+  /**
+   * Apologise, but only if the caller has genuinely stopped talking.
+   *
+   * The wait is not politeness — it is a window to be interrupted in. A delay
+   * on its own would just move the collision later; what breaks the loop is
+   * abandoning the apology outright when the caller turns out to have been
+   * mid-sentence. Any proof of life during the hold (speech energy, a partial
+   * with words, a new final) cancels it.
+   *
+   * Erring towards silence is safe in a way that erring towards speaking is
+   * not: an apology we wrongly skip costs one reprompt interval, while one we
+   * wrongly speak derails the caller and feeds the loop.
+   */
+  private async apologiseUnlessCallerResumes(): Promise<void> {
+    const holdMs = this.recognition.lowConfidenceHoldMs;
+    const before = this.callerActivity;
+
+    if (holdMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, holdMs));
+      if (this.ended) return;
+
+      if (this.callerActivity !== before) {
+        this.options.logger.info(
+          { callRef: this.options.callRef, heldMs: holdMs, streak: this.lowConfidenceStreak },
+          'caller resumed during the hold — not apologising over them',
+        );
+        this.startSilenceWatch();
+        return;
+      }
+    }
+
+    // Text first: the variant is chosen by how many apologies have ALREADY
+    // been spoken, so the first one is variant 0.
+    const text = this.didNotCatchText();
+    this.lowConfidenceApologies++;
+    this.options.logger.info(
+      {
+        callRef: this.options.callRef,
+        attempt: this.lowConfidenceApologies,
+        of: this.recognition.maxLowConfidenceTurns,
+        heldMs: holdMs,
+        text,
+      },
+      'apologising for a low-confidence turn',
+    );
+    await this.speak(text);
+    this.startSilenceWatch();
   }
 
   private repromptText(): string {
@@ -811,9 +911,17 @@ export class CallSession {
     void this.onSilence();
   }
 
-  /** The caller is speaking, or just did: the line is not quiet. */
+  /**
+   * The caller is speaking, or just did: the line is not quiet.
+   *
+   * The counter is how a pending apology learns the caller resumed. Anything
+   * that proves the caller is alive bumps it — speech energy, a partial, a
+   * final — and a hold that sees it change abandons the apology rather than
+   * speaking over someone who turned out to be mid-sentence.
+   */
   private noteCallerActivity(): void {
     this.lastAudibleAt = Date.now();
+    this.callerActivity++;
   }
 
   private async onSilence(): Promise<void> {

@@ -44,6 +44,25 @@ pnpm --filter @frontly/api simulate:call   # a whole call, no phone involved
 pnpm --filter @frontly/core bench          # first-token vs first-sentence
 ```
 
+## `.env` is the owner's file. Never write to it.
+
+**Do not write, overwrite, regenerate, `cp .env.example .env`, `sed -i`, or
+otherwise modify `.env` — ever, for any reason, even when asked to "fix" or
+"restore" it.** It holds real credentials (Turso, Azure, Telnyx, Anthropic) that
+only the owner has. Reading it is fine. `.env.example` is ours: put every new
+variable there, with a comment, and tell the owner what to set.
+
+If a key is missing or wrong, say which variable and what it needs — do not
+repair it. If a script would need to write env values, it writes `.env.example`
+or prints what to paste, and nothing else. **No file in this repo writes to any
+file at all today; keep it that way.**
+
+Enforced, not just documented: `.claude/settings.json` denies Write/Edit on
+`.env`, and a `PreToolUse` hook (`.claude/hooks/protect-env.mjs`) refuses shell
+commands that redirect, copy, `sed -i` or delete it. The hook is Node, not
+bash+`jq` — **`jq` is not installed on this machine**, and the first version used
+it, so every command parsed as empty and the guard allowed everything silently.
+
 ## Architecture invariant
 
 The conversation engine is channel-agnostic. Dependencies point one way only:
@@ -251,6 +270,26 @@ add drizzle to the API.
   a line is indistinguishable from a numbered list item. Note that JavaScript
   `` is defined over `[A-Za-z0-9_]` and does not fire around Cyrillic at
   all — the pattern uses lookarounds.
+- **The apology loop is a race, and the cap alone does not break it.** The
+  recognizer never hears our own audio — `stream_track: 'inbound_track'` is a
+  hard split at the carrier, not an acoustic filter — so digital echo is ruled
+  out. The loop is behavioural. `DID_NOT_CATCH` is a *cached* phrase, so it
+  plays ~35ms after a result, faster than a person could have understood the
+  sentence. A caller who pauses mid-thought is finalized on a fragment, which
+  scores badly *because* it is a fragment; the instant apology lands while they
+  are still talking; being talked over derails them into a disfluent restart;
+  that finalizes as another fragment. Self-sustaining, driven by timing, which
+  is why no `--reprompt-after` value ever touched it. The defences are
+  `silentLowConfidenceTurns` (the first result is met with **silence** — a
+  caller mid-sentence who hears nothing simply carries on) and
+  `lowConfidenceHoldMs`, which is **a window to be interrupted in, not a
+  delay**: any proof of life during it abandons the apology. A delay that still
+  spoke afterwards would only move the collision later. Note the cap
+  (`maxLowConfidenceTurns`) counts apologies **spoken**, not results seen — and
+  on its own it did not fix anything, it converted an endless loop into a
+  premature *hang-up*, since `handOver()` with no working transfer route speaks
+  `TRANSFER_UNAVAILABLE` and ends the call. Two pauses from an audible caller
+  would have dropped them.
 - **Azure STT returns no confidence unless `OutputFormat.Detailed` is set.**
   Without it every result scores 1.0 and the low-confidence path can never fire.
 - **Azure's recognizer drops audio written before `startContinuousRecognitionAsync`

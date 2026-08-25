@@ -93,8 +93,32 @@ export const recognitionConfigSchema = z.object({
    */
   minConfidence: z.number().min(0).max(1).default(0.4),
   /**
-   * Consecutive low-confidence turns before the agent stops retrying the same
-   * question and offers a way out.
+   * Low-confidence results met with SILENCE before the agent apologises at all.
+   *
+   * The apology is a pre-synthesized phrase, so it plays about 35 ms after the
+   * result lands — faster than any human could have processed the sentence. A
+   * caller who merely paused mid-thought (and so got finalized on a fragment,
+   * which scores badly precisely because it is a fragment) hears the apology
+   * while still talking. That derails them into a disfluent restart, which
+   * finalizes as another fragment, which scores badly again. Self-sustaining,
+   * and driven by timing rather than by any tunable delay.
+   *
+   * A caller mid-sentence who gets silence just keeps talking, and their next
+   * result is a whole sentence that scores fine. So the first one says nothing.
+   */
+  silentLowConfidenceTurns: z.number().int().min(0).max(3).default(1),
+  /**
+   * How long to wait before an apology, and — the point — a window in which the
+   * caller resuming cancels it entirely.
+   *
+   * A delay alone would only move the collision later. What breaks the loop is
+   * abandoning the apology when the caller turns out to have been mid-sentence.
+   */
+  lowConfidenceHoldMs: z.number().int().min(0).max(3000).default(500),
+  /**
+   * Apologies actually SPOKEN before the agent stops retrying and offers a way
+   * out. Silent holds do not count against it, so raising the silent budget
+   * never shortens the caller's real number of chances.
    *
    * A caller the system genuinely cannot hear gets a graceful exit. Retrying
    * indefinitely is what turned a bad line into a loop.

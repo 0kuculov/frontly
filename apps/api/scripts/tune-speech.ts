@@ -32,6 +32,8 @@ import {
  *   pnpm --filter @frontly/api tune:speech --reprompt-after 6000
  *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.8
  *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
+ *   pnpm --filter @frontly/api tune:speech --silent-low-confidence 1
+ *   pnpm --filter @frontly/api tune:speech --low-confidence-hold 600
  *   pnpm --filter @frontly/api tune:speech --reset
  */
 
@@ -83,6 +85,8 @@ async function main(): Promise<void> {
   const phraseWeight = flag('phrase-weight');
   const minConfidence = flag('min-confidence');
   const maxLowConfidence = flag('max-low-confidence');
+  const silentLowConfidence = flag('silent-low-confidence');
+  const lowConfidenceHold = flag('low-confidence-hold');
 
   if (silence !== undefined) changes.segmentationSilenceMs = Number(silence);
   if (strategy !== undefined) changes.segmentationStrategy = strategy;
@@ -94,6 +98,9 @@ async function main(): Promise<void> {
   if (phraseWeight !== undefined) changes.phraseListWeight = Number(phraseWeight);
   if (minConfidence !== undefined) changes.minConfidence = Number(minConfidence);
   if (maxLowConfidence !== undefined) changes.maxLowConfidenceTurns = Number(maxLowConfidence);
+  if (silentLowConfidence !== undefined)
+    changes.silentLowConfidenceTurns = Number(silentLowConfidence);
+  if (lowConfidenceHold !== undefined) changes.lowConfidenceHoldMs = Number(lowConfidenceHold);
 
   const resetting = args.includes('--reset');
 

@@ -110,6 +110,11 @@ class FakeStt implements ISpeechToText {
     this.handlers.onSpeechStarted?.();
     this.handlers.onFinal({ text, confidence, ...(detectedLanguage ? { detectedLanguage } : {}) });
   }
+
+  /** An unstable hypothesis: never a turn, but proof the caller is talking. */
+  partial(text: string): void {
+    this.handlers.onPartial?.(text);
+  }
 }
 
 class FakeProvider implements ISpeechProvider {
@@ -405,10 +410,16 @@ describe('a call', () => {
   });
 
   it('admits it did not catch a low-confidence utterance', async () => {
-    const h = makeSession(new ScriptedLanguageModel([]));
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      // The first one is deliberately met with silence; this is about what the
+      // agent says once it is sure the line, not the pause, is the problem.
+      recognition: { ...DEFAULT_RECOGNITION_CONFIG, lowConfidenceHoldMs: 20 },
+    });
     await h.session.start();
     h.provider.tts.spoken.length = 0;
 
+    h.provider.stt!.say('...шшш...', 0.15, 'mk');
+    await settle();
     h.provider.stt!.say('...шшш...', 0.15, 'mk');
     await settle();
 
@@ -1214,7 +1225,7 @@ describe('recognition vocabulary', () => {
 });
 
 describe('a line we cannot hear', () => {
-  const deaf = { ...DEFAULT_RECOGNITION_CONFIG, maxLowConfidenceTurns: 2 };
+  const deaf = { ...DEFAULT_RECOGNITION_CONFIG, maxLowConfidenceTurns: 2, lowConfidenceHoldMs: 20 };
 
   it('stops retrying the same question and offers a way out', async () => {
     /**
@@ -1232,12 +1243,19 @@ describe('a line we cannot hear', () => {
     await h.session.start();
     h.provider.tts.spoken.length = 0;
 
-    h.provider.stt!.say('шшш', 0.2, 'mk');
-    await settle(60);
-    h.provider.stt!.say('шшш', 0.15, 'mk');
+    // Four low-confidence results: the first is met with silence, the next two
+    // apologise, the fourth gives up. Silent holds must NOT spend a chance.
+    for (const c of [0.2, 0.15, 0.18, 0.12]) {
+      h.provider.stt!.say('шшш', c, 'mk');
+      await settle(80);
+    }
     await settle(120);
 
     const said = h.provider.tts.spoken.map((s) => s.text);
+    // Nothing at all was spoken for the first one.
+    expect(
+      h.logs.filter((l) => l.message === 'apologising for a low-confidence turn'),
+    ).toHaveLength(2);
     // The apology escalates rather than repeating verbatim.
     expect(said[0]).toBe(DID_NOT_CATCH.mk[0]);
     expect(said).toContain(CANNOT_HEAR.mk);
@@ -1260,9 +1278,66 @@ describe('a line we cannot hear', () => {
     h.provider.stt!.say('Сакам термин утре.', 0.95, 'mk');
     await settle(120);
 
-    // One apology, then a normal turn — the streak resets.
+    // Held in silence, then a normal turn — nothing was spoken at the caller.
     expect(h.provider.tts.spoken.map((s) => s.text)).not.toContain(CANNOT_HEAR.mk);
+    expect(h.provider.tts.spoken.map((s) => s.text)).not.toContain(DID_NOT_CATCH.mk[0]);
     expect(h.logs.filter((l) => l.message === 'turn started')).toHaveLength(1);
+    await h.session.stop('test');
+  });
+
+  it('says nothing at all on the first low-confidence result', async () => {
+    /**
+     * The race this exists to break. The apology is a cached phrase, so it
+     * plays ~35 ms after the result — while a caller who merely paused
+     * mid-thought is still talking. Being talked over derails them into a
+     * disfluent restart, which finalizes as another bad fragment, which
+     * apologises again. Timing-driven, so no delay tuning ever touched it.
+     */
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: deaf,
+      silenceMs: 5000,
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('сакам да закажам за', 0.2, 'mk');
+    await settle(120);
+
+    expect(h.provider.tts.spoken).toHaveLength(0);
+    expect(
+      h.logs.some(
+        (l) =>
+          l.message ===
+          'low confidence held in silence — may be a fragment of a sentence still being spoken',
+      ),
+    ).toBe(true);
+    await h.session.stop('test');
+  });
+
+  it('abandons the apology when the caller resumes during the hold', async () => {
+    // The delay only helps because it is a window to be interrupted in. A
+    // delay that still speaks afterwards would just move the collision later.
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: {
+        ...DEFAULT_RECOGNITION_CONFIG,
+        silentLowConfidenceTurns: 0,
+        lowConfidenceHoldMs: 300,
+      },
+      silenceMs: 5000,
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('сакам да закажам за', 0.2, 'mk');
+    await settle(60);
+    // Still mid-sentence: the fragment was never the whole thought.
+    h.provider.stt!.partial('вторник наутро');
+    await settle(400);
+
+    expect(h.provider.tts.spoken).toHaveLength(0);
+    expect(
+      h.logs.some((l) => l.message === 'caller resumed during the hold — not apologising over them'),
+    ).toBe(true);
     await h.session.stop('test');
   });
 

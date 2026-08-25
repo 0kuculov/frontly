@@ -31,6 +31,7 @@ import {
   REPROMPTS,
   TRANSFER_UNAVAILABLE,
 } from './phrases.js';
+import type { CallEvent, CallEventDraft } from '../demo/events.js';
 import { phraseRequest, type SpeechCache } from './speech-cache.js';
 import type { ISpeechProvider, ISpeechToText, ITextToSpeech, TranscriptionResult } from './types.js';
 
@@ -116,6 +117,11 @@ export interface CallSessionOptions {
   fillerAfterMs?: number;
   /** Overrides the business's own recognition tuning. Tests use it. */
   recognition?: RecognitionConfig | undefined;
+  /**
+   * Live events for the demo screen. Optional: the call behaves identically
+   * without a listener, and the session never learns who is watching.
+   */
+  onEvent?: ((event: CallEvent) => void) | undefined;
 }
 
 
@@ -169,6 +175,15 @@ export class CallSession {
    * and an agent talking to itself is not someone being there.
    */
   private lastCallerSoundAt = Date.now();
+  /**
+   * When Azure last reported the caller's speech energy STOPPED.
+   *
+   * The honest starting point for "how long did the caller wait?", measured
+   * rather than derived. Deriving it from the segmentation timeout produced a
+   * number that did not move when the timeout changed, because simulated audio
+   * carries its own trailing silence — so this takes the real moment instead.
+   */
+  private callerStoppedAt: number | undefined;
   /** Synthesis time for the most recent sentence, for the latency log. */
   private lastSynthesisMs = 0;
   /** Synthesis time for the FIRST sentence of the current turn. */
@@ -205,6 +220,7 @@ export class CallSession {
   // --- lifecycle -------------------------------------------------------------
 
   async start(): Promise<void> {
+    this.emit({ type: 'call.started', callRef: this.options.callRef, from: this.options.from });
     const languages = this.businessLanguages();
 
     this.stt = this.options.provider.createRecognizer({
@@ -310,6 +326,13 @@ export class CallSession {
       },
       'call ended',
     );
+    this.emit({
+      type: 'call.ended',
+      callRef: this.options.callRef,
+      endedBy: endedBy(reason),
+      outcome: this.state.outcome ?? 'abandoned',
+      durationMs: Date.now() - this.startedAt,
+    });
   }
 
   // --- speech in -------------------------------------------------------------
@@ -337,6 +360,9 @@ export class CallSession {
 
   /** Energy stopped before it became words: it was noise, not the caller. */
   private onSpeechEnded(): void {
+    // The real moment the caller stopped talking, which is where the honest
+    // latency number starts counting.
+    this.callerStoppedAt = Date.now();
     if (!this.bargeInTimer) return;
     clearTimeout(this.bargeInTimer);
     this.bargeInTimer = undefined;
@@ -409,6 +435,7 @@ export class CallSession {
         { callRef: this.options.callRef, language: this.language },
         'language locked',
       );
+      this.emit({ type: 'call.language', callRef: this.options.callRef, language: this.language });
     }
 
     const minConfidence = this.options.minConfidence ?? this.recognition.minConfidence;
@@ -625,6 +652,9 @@ export class CallSession {
 
       this.record({
         role: 'agent',
+        // Persisted so the demo's average latency is one actually measured on
+        // real calls, and survives a redeploy.
+        ...(this.callerFacingMs() !== undefined ? { callerFacingMs: this.callerFacingMs() } : {}),
         text: result.reply,
         toolCalls: result.toolCalls.map((call) => ({
           name: call.name,
@@ -669,9 +699,29 @@ export class CallSession {
           },
           modelCalls: result.timings.modelCalls,
           tools: result.toolCalls.map((c) => c.name),
+          // Caller stopped speaking -> first audio. Unlike toFirstAudioMs above
+          // (which starts after Azure has already finalized, and in practice
+          // just reports the 800ms filler firing on schedule) this is the wait
+          // the caller actually sits through.
+          callerFacingMs: this.callerFacingMs(),
         },
         'turn complete',
       );
+
+      for (const call of result.toolCalls) {
+        this.emit({
+          type: 'tool',
+          callRef: this.options.callRef,
+          name: call.name,
+          ok: true,
+        });
+      }
+      this.emit({
+        type: 'turn.done',
+        callRef: this.options.callRef,
+        callerFacingMs: this.callerFacingMs(),
+      });
+      this.callerStoppedAt = undefined;
 
       // If streaming produced nothing (a model that returned only tool calls),
       // fall back to speaking the assembled reply so the line is never dead.
@@ -801,6 +851,19 @@ export class CallSession {
     const variants = REPROMPTS[this.language];
     const index = Math.min(this.silencePrompts - 1, variants.length - 1);
     return variants[Math.max(0, index)]!;
+  }
+
+  /**
+   * The wait the caller actually experiences: they stop talking, then silence
+   * until the agent's first audio.
+   *
+   * Undefined when either end is missing (a turn the caller never spoke into,
+   * such as a reprompt) rather than guessed, because a fabricated latency
+   * number is worse than a missing one.
+   */
+  private callerFacingMs(): number | undefined {
+    if (!this.callerStoppedAt || !this.turnFirstAudioAt) return undefined;
+    return this.turnFirstAudioAt - this.callerStoppedAt;
   }
 
   /** True while a turn is in flight — the simulation uses it to pace itself. */
@@ -1090,6 +1153,24 @@ export class CallSession {
 
   private record(turn: Omit<TranscriptTurn, 'atMs'>): void {
     this.transcript.push({ ...turn, atMs: Date.now() - this.startedAt } as TranscriptTurn);
+    if (turn.role === 'customer' || turn.role === 'agent') {
+      this.emit({ type: 'said', callRef: this.options.callRef, role: turn.role, text: turn.text });
+    }
+  }
+
+  /**
+   * Tell the demo screen, if anyone is listening.
+   *
+   * Never allowed to affect the call: a listener that throws must not drop a
+   * caller, and the screen is the least important thing on the line.
+   */
+  private emit(event: CallEventDraft): void {
+    if (!this.options.onEvent) return;
+    try {
+      this.options.onEvent({ ...event, at: Date.now() } as CallEvent);
+    } catch {
+      /* the screen is not the call's problem */
+    }
   }
 
   private async createConversationRow(): Promise<string> {

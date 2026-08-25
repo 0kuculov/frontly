@@ -1,0 +1,322 @@
+/*
+ * The stage screen.
+ *
+ * Built for one situation: a projector at the back of a room, a judge on the
+ * phone, and nobody able to lean in. Every choice below follows from that.
+ *
+ * LIGHT, not dark. A washed-out projector has a weak black level, so a dark UI
+ * collapses into grey mud while a bright background stays bright. The obvious
+ * "high contrast = dark theme" instinct is backwards for projected work.
+ *
+ * The tool card is the only loud thing on the page, because a tool firing is
+ * the moment the demo stops looking like a chatbot. Everything else is quiet
+ * on purpose so that moment has somewhere to land.
+ */
+
+.stage {
+  --paper: #f4f6f9;
+  --card: #ffffff;
+  --ink: #080d1a;
+  --ink-soft: #59617a;
+  --signal: #1b34ff;
+  --signal-ink: #ffffff;
+  --live: #d40000;
+  --rule: #d7dce6;
+
+  --gap: clamp(1rem, 2.2vw, 2.25rem);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-golos), ui-sans-serif, system-ui, sans-serif;
+  /* Projected text is read from 10 metres, not 50 centimetres. */
+  font-size: clamp(17px, 1.15vw, 22px);
+  line-height: 1.4;
+}
+
+/* --- status bar ---------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: clamp(0.7rem, 1.4vw, 1.3rem) var(--gap);
+  background: var(--card);
+  border-bottom: 2px solid var(--rule);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.82em;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 0.72em;
+  height: 0.72em;
+  border-radius: 50%;
+  background: var(--rule);
+  flex: none;
+}
+
+.line[data-live='true'] .dot {
+  background: var(--live);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.who {
+  font-weight: 700;
+  font-size: 1.05em;
+  letter-spacing: -0.01em;
+}
+
+.number {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  color: var(--ink-soft);
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+}
+
+.spacer {
+  margin-left: auto;
+}
+
+/*
+ * Connection state.
+ *
+ * Present but never alarming: a venue network drops constantly and a red
+ * banner every time would train the room to distrust a working demo. It only
+ * says anything at all when something is actually wrong.
+ */
+.link {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0.35em 0.8em;
+  border: 2px solid var(--rule);
+  border-radius: 999px;
+}
+
+.link[data-state='down'] {
+  color: var(--live);
+  border-color: currentColor;
+}
+
+.reset {
+  font: inherit;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--card);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 0.6em 1.2em;
+  cursor: pointer;
+}
+
+.reset:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--card);
+}
+
+.reset:focus-visible {
+  outline: 3px solid var(--signal);
+  outline-offset: 3px;
+}
+
+.reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* --- transcript ---------------------------------------------------------- */
+
+.feed {
+  overflow-y: auto;
+  padding: var(--gap);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.9rem, 1.7vw, 1.7rem);
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed {
+    scroll-behavior: auto;
+  }
+}
+
+.turn {
+  max-width: 46ch;
+  animation: rise 0.28s ease-out both;
+}
+
+.turn[data-role='agent'] {
+  margin-left: auto;
+  text-align: right;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+.role {
+  display: block;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68em;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 0.45em;
+}
+
+.said {
+  font-size: clamp(1.35rem, 2.1vw, 2.3rem);
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.turn[data-role='customer'] .said {
+  color: var(--ink);
+}
+
+.turn[data-role='agent'] .said {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/*
+ * The signature.
+ *
+ * A tool firing is the whole pitch — the agent is not talking about booking,
+ * it is booking — so it interrupts the conversation across the full width
+ * instead of sitting politely inside a bubble, and it is the only saturated
+ * surface on the screen.
+ */
+.tool {
+  max-width: none;
+  margin: clamp(0.4rem, 1vw, 1rem) 0;
+  background: var(--signal);
+  color: var(--signal-ink);
+  padding: clamp(1rem, 2vw, 1.9rem) var(--gap);
+  border-radius: 3px;
+  display: flex;
+  align-items: baseline;
+  gap: clamp(0.8rem, 2vw, 1.8rem);
+  flex-wrap: wrap;
+  animation: slam 0.34s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+@keyframes slam {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.tool-name {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(1.4rem, 2.6vw, 2.9rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.tool-note {
+  font-size: clamp(0.95rem, 1.3vw, 1.35rem);
+  opacity: 0.85;
+}
+
+/* The empty screen is an instruction, not an apology. */
+.idle {
+  margin: auto;
+  text-align: center;
+  max-width: 24ch;
+}
+
+.idle-lead {
+  font-size: clamp(1.6rem, 3vw, 3.2rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin: 0 0 0.4em;
+  text-wrap: balance;
+}
+
+.idle-number {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(1.3rem, 2.4vw, 2.4rem);
+  letter-spacing: 0.02em;
+  color: var(--signal);
+  font-weight: 600;
+}
+
+/* --- metrics ------------------------------------------------------------- */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  background: var(--rule);
+  gap: 2px;
+  border-top: 2px solid var(--rule);
+}
+
+.metric {
+  background: var(--card);
+  padding: clamp(0.7rem, 1.3vw, 1.25rem) var(--gap);
+}
+
+.metric-value {
+  display: block;
+  font-size: clamp(1.5rem, 2.6vw, 2.7rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-label {
+  display: block;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.66em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-top: 0.55em;
+}
+
+@media (max-width: 640px) {
+  .bar {
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .turn {
+    max-width: none;
+  }
+}

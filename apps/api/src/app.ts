@@ -4,6 +4,7 @@ import sensible from '@fastify/sensible';
 import websocket from '@fastify/websocket';
 import { createDb, enableForeignKeys, type Database } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
+import { registerDemoRoutes } from './routes/demo.js';
 import { healthRoutes } from './routes/health.js';
 import { voiceRoutes } from './routes/voice.js';
 import { AzureSpeechProvider } from './voice/azure.js';
@@ -75,6 +76,8 @@ export async function buildApp(
    * up. Declared before the health route so the closure sees later writes.
    */
   let voiceChannel: { carrier: string; prefix: string } | undefined;
+
+  await app.register(registerDemoRoutes, { db });
 
   await app.register(healthRoutes, {
     db,

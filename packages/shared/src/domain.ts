@@ -46,6 +46,15 @@ export const transcriptTurnSchema = z.object({
   atMs: z.number().int().nonnegative(),
   /** STT confidence 0..1, voice only. Absent for chat. */
   confidence: z.number().min(0).max(1).optional(),
+  /**
+   * The caller's real wait on an agent turn: they stopped talking, then silence
+   * until the first audio came back. Voice only, and absent whenever either end
+   * was not observed — a missing latency is honest, a zero is a lie.
+   *
+   * Persisted per turn so the demo's average survives a redeploy, and so the
+   * number quoted on stage is one that was actually measured on these calls.
+   */
+  callerFacingMs: z.number().int().nonnegative().optional(),
   toolCalls: z
     .array(
       z.object({

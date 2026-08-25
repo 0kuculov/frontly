@@ -18,6 +18,7 @@ Deadline: **10 September 2026** — incubator application + live stage demo.
 | Repo | https://github.com/0kuculov/frontly (`main` auto-deploys to Render) |
 | Phone | **+1 619 349 7599** (Telnyx, US local). A +389 toll-free is requested and pending. |
 | Dashboard | not deployed yet (Phase 4 → Vercel) |
+| Demo screen | `/demo` in `apps/web`. Needs `APP_ORIGIN` on Render to include its origin, or CORS blocks every request and the screen stays empty. |
 
 ## Commands
 
@@ -414,9 +415,9 @@ honest.
 2. Conversation engine (`handleTurn`, tools, Macedonian prompt) — **done**
 3. Voice channel (Telnyx ↔ Azure Speech) — **built, awaiting a real call**
 4. Owner dashboard
-5. Chat channel (embeddable widget)
+5. Chat channel (embeddable widget) — **last, cut without hesitation**
 6. Follow-up (SMS confirmation, reminder, daily summary)
-7. Demo & metrics
+7. Demo & metrics — **built, awaiting deploy**
 8. Albanian pass, README, full deploy
 
 Stop after each phase, show what works, wait for go-ahead.

@@ -8,6 +8,7 @@ import {
 import type { ServerEnv } from '@frontly/shared';
 import { CallSession } from '../voice/session.js';
 import type { SpeechCache } from '../voice/speech-cache.js';
+import { callEvents } from '../demo/events.js';
 import { createSink, type ITelephonyProvider } from '../voice/telephony.js';
 import type { ISpeechProvider } from '../voice/types.js';
 
@@ -370,6 +371,8 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
           from: input.from,
           logger: app.log,
           cache,
+          // The demo screen listens here. The session does not know that.
+          onEvent: (event) => callEvents.publish(event),
           onHangUp: endCall,
           onTransfer: async (to) => {
             await telephony.transfer({

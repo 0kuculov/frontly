@@ -418,10 +418,10 @@ describe('a call', () => {
     await h.session.start();
     h.provider.tts.spoken.length = 0;
 
-    h.provider.stt!.say('...шшш...', 0.15, 'mk');
-    await settle();
-    h.provider.stt!.say('...шшш...', 0.15, 'mk');
-    await settle();
+    for (let i = 0; i < 3; i++) {
+      h.provider.stt!.say('...шшш...', 0.15, 'mk');
+      await settle();
+    }
 
     expect(h.provider.tts.spoken[0]!.text).toContain('не ве слушнав');
     // It never reached the model, so nothing was booked off a mumble.
@@ -429,7 +429,7 @@ describe('a call', () => {
     await h.session.stop('test');
   });
 
-  it('escalates through the reprompts, then offers a callback and hangs up', async () => {
+  it('escalates through the reprompts, then offers a callback and STAYS ON', async () => {
     const h = makeSession(new ScriptedLanguageModel([]), { silenceMs: 60 });
     await h.session.start();
     h.provider.tts.spoken.length = 0;
@@ -448,7 +448,12 @@ describe('a call', () => {
     await settle(160);
     const said = h.provider.tts.spoken.map((s) => s.text).join(' ');
     expect(said).toContain('колега да ви се јави');
-    expect(h.hangUps).toBe(1);
+    // The callback is offered, the line is NOT dropped. Every escape path used
+    // to end in a hangup; a caller still on the line must never be one of them.
+    expect(h.hangUps).toBe(0);
+    expect(
+      h.logs.some((l) => l.message === 'declined to hang up — the caller is still there'),
+    ).toBe(true);
   });
 
   it('waits the configured time before checking in, measured from the last audio', async () => {
@@ -554,7 +559,8 @@ describe('transfer to a human', () => {
     // the one a live demo would actually hit.
     const said = h.provider.tts.spoken.map((s) => s.text).join(' ');
     expect(said).toContain('колега да ви се јави');
-    expect(h.hangUps).toBe(1);
+    // Promising a callback is not a reason to drop the call.
+    expect(h.hangUps).toBe(0);
   });
 
   it('does not strand the caller when the carrier refuses the transfer', async () => {
@@ -576,7 +582,7 @@ describe('transfer to a human', () => {
     await settle(120);
 
     expect(h.provider.tts.spoken.map((s) => s.text).join(' ')).toContain('колега да ви се јави');
-    expect(h.hangUps).toBe(1);
+    expect(h.hangUps).toBe(0);
   });
 });
 
@@ -1225,7 +1231,11 @@ describe('recognition vocabulary', () => {
 });
 
 describe('a line we cannot hear', () => {
-  const deaf = { ...DEFAULT_RECOGNITION_CONFIG, maxLowConfidenceTurns: 2, lowConfidenceHoldMs: 20 };
+  const deaf = {
+    ...DEFAULT_RECOGNITION_CONFIG,
+    maxLowConfidenceTurns: 2,
+    lowConfidenceHoldMs: 20,
+  };
 
   it('stops retrying the same question and offers a way out', async () => {
     /**
@@ -1243,9 +1253,9 @@ describe('a line we cannot hear', () => {
     await h.session.start();
     h.provider.tts.spoken.length = 0;
 
-    // Four low-confidence results: the first is met with silence, the next two
-    // apologise, the fourth gives up. Silent holds must NOT spend a chance.
-    for (const c of [0.2, 0.15, 0.18, 0.12]) {
+    // Five low-confidence results: the first two are met with silence, the next
+    // two apologise, the fifth offers a way out. Silent holds spend no chance.
+    for (const c of [0.2, 0.15, 0.18, 0.12, 0.14]) {
       h.provider.stt!.say('шшш', c, 'mk');
       await settle(80);
     }
@@ -1259,9 +1269,14 @@ describe('a line we cannot hear', () => {
     // The apology escalates rather than repeating verbatim.
     expect(said[0]).toBe(DID_NOT_CATCH.mk[0]);
     expect(said).toContain(CANNOT_HEAR.mk);
-    expect(handed).toEqual([context.business.ownerMobile]);
+    // A line we cannot transcribe is still a caller: offer the way out, keep
+    // the call. This path used to reach handOver() and hang up at ~10s.
+    expect(h.hangUps).toBe(0);
+    expect(handed).toEqual([]);
     expect(
-      h.logs.some((l) => l.message === 'giving up on a line we cannot hear — offering a way out'),
+      h.logs.some(
+        (l) => l.message === 'cannot hear this line — offering a way out, but staying on the call',
+      ),
     ).toBe(true);
   });
 
@@ -1283,6 +1298,59 @@ describe('a line we cannot hear', () => {
     expect(h.provider.tts.spoken.map((s) => s.text)).not.toContain(DID_NOT_CATCH.mk[0]);
     expect(h.logs.filter((l) => l.message === 'turn started')).toHaveLength(1);
     await h.session.stop('test');
+  });
+
+  it('never hangs up on a caller who is audibly present', async () => {
+    /**
+     * The stage blocker. Every escape path used to end in onHangUp(), so four
+     * low-confidence results in a row dropped the caller at around ten seconds
+     * while they were still talking. A caller we cannot transcribe is still a
+     * caller, and someone dropped mid-call has no idea what happened.
+     */
+    const handed: string[] = [];
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: deaf,
+      silenceMs: 60,
+      onTransfer: async (to) => void handed.push(to),
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    // Ten unintelligible utterances — far past every cap there is — but the
+    // caller is audibly there the whole time.
+    for (let i = 0; i < 10; i++) {
+      h.provider.stt!.say('шшш', 0.12, 'mk');
+      await settle(70);
+    }
+
+    expect(h.hangUps).toBe(0);
+    expect(handed).toEqual([]);
+    await h.session.stop('test');
+  });
+
+  it('hangs up only once the line has gone genuinely silent', async () => {
+    // The one remaining agent-initiated hangup: no caller sound at all. Without
+    // it an abandoned call stays open and billable forever.
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      recognition: { ...deaf, presenceWindowMs: 1000, abandonAfterMs: 15_000 },
+      silenceMs: 60,
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    await settle(400);
+    expect(h.hangUps).toBe(0); // reprompted, but the window has not passed
+
+    // Nothing from the caller for longer than abandonAfterMs.
+    h.session['lastCallerSoundAt'] = Date.now() - 20_000;
+    await settle(400);
+
+    expect(h.hangUps).toBe(1);
+    const ended = h.logs.find((l) => l.message === 'call ended');
+    expect(ended?.payload).toMatchObject({ endedBy: 'agent' });
+    expect(
+      h.logs.some((l) => l.message === 'hanging up — our decision, the line has been silent'),
+    ).toBe(true);
   });
 
   it('says nothing at all on the first low-confidence result', async () => {

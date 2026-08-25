@@ -329,6 +329,30 @@ add drizzle to the API.
   premature *hang-up*, since `handOver()` with no working transfer route speaks
   `TRANSFER_UNAVAILABLE` and ends the call. Two pauses from an audible caller
   would have dropped them.
+- **The agent never hangs up on a caller who is audibly present.** It used to,
+  and it was a stage-ending bug: *every* escape path ended in `onHangUp()`, so
+  four low-confidence results in a row dropped the caller at roughly **ten
+  seconds** — mid-sentence, on 2 of 4 real calls. The low-confidence cap called
+  `handOver()`, which with no transfer route speaks `TRANSFER_UNAVAILABLE` and
+  hung up. Adding the silence hold did **not** fix this: it changed how often
+  apologies fire and left `cap → handOver → hangup` completely intact. Not
+  recognising someone is not the same as them being gone — a bad line, an
+  accent or a noisy room all produce sound we cannot transcribe, and every one
+  of those is a person waiting.
+  - `hangUp()` is now the **only** place that ends a call, and it refuses while
+    `callerPresent` (any caller sound within `presenceWindowMs`, default 20s).
+  - `lastCallerSoundAt` is bumped **only** by caller signals. `lastAudibleAt`
+    counts the agent too, because it drives the quiet clock — using it for
+    presence would let the agent's own voice prove the caller is there.
+  - The only agent-initiated hangup left is `abandonAfterMs` (default **120s**)
+    of *no caller sound at all*, so a dead line does not stay billable.
+  - Every escape path now says its piece, calls `forgetTrouble()` to reset the
+    counters, and keeps listening. Without that reset the next bad result walks
+    straight back into the same dead end — the loop again, one level up.
+- **`call ended` logs `endedBy`.** `agent` / `caller` / `carrier` / `transfer`,
+  plus `callerQuietForMs`. "Did we hang up on them or did they hang up on us?"
+  previously required knowing which reason strings came from which layer, and
+  it is the first question worth asking about any short call.
 - **Azure STT returns no confidence unless `OutputFormat.Detailed` is set.**
   Without it every result scores 1.0 and the low-confidence path can never fire.
 - **Azure's recognizer drops audio written before `startContinuousRecognitionAsync`

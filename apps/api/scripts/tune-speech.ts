@@ -33,7 +33,9 @@ import {
  *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.0   # OFF by default: measured harmful, see sweep:phrases
  *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
  *   pnpm --filter @frontly/api tune:speech --silent-low-confidence 1
- *   pnpm --filter @frontly/api tune:speech --low-confidence-hold 600
+ *   pnpm --filter @frontly/api tune:speech --low-confidence-hold 2000
+ *   pnpm --filter @frontly/api tune:speech --presence-window 20000   # never hang up on a present caller
+ *   pnpm --filter @frontly/api tune:speech --abandon-after 120000    # the ONLY agent hangup
  *   pnpm --filter @frontly/api tune:speech --reset
  */
 
@@ -87,6 +89,8 @@ async function main(): Promise<void> {
   const maxLowConfidence = flag('max-low-confidence');
   const silentLowConfidence = flag('silent-low-confidence');
   const lowConfidenceHold = flag('low-confidence-hold');
+  const presenceWindow = flag('presence-window');
+  const abandonAfter = flag('abandon-after');
 
   if (silence !== undefined) changes.segmentationSilenceMs = Number(silence);
   if (strategy !== undefined) changes.segmentationStrategy = strategy;
@@ -101,6 +105,8 @@ async function main(): Promise<void> {
   if (silentLowConfidence !== undefined)
     changes.silentLowConfidenceTurns = Number(silentLowConfidence);
   if (lowConfidenceHold !== undefined) changes.lowConfidenceHoldMs = Number(lowConfidenceHold);
+  if (presenceWindow !== undefined) changes.presenceWindowMs = Number(presenceWindow);
+  if (abandonAfter !== undefined) changes.abandonAfterMs = Number(abandonAfter);
 
   const resetting = args.includes('--reset');
 

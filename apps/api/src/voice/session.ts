@@ -49,6 +49,24 @@ import type { ISpeechProvider, ISpeechToText, ITextToSpeech, TranscriptionResult
 /** Why a turn ran. A reprompt must be distinguishable from a real answer. */
 export type TurnReason = 'caller' | 'queued-while-busy';
 
+/**
+ * Who ended the call.
+ *
+ * "Did we hang up on them or did they hang up on us?" was not answerable from
+ * a log without knowing which reason strings originate in which layer, and it
+ * is the first question worth asking about any short call.
+ */
+export type CallEndedBy = 'agent' | 'caller' | 'carrier' | 'transfer';
+
+function endedBy(reason: string): CallEndedBy {
+  // The socket closing is the caller's leg going away; the provider stopping
+  // the stream is the carrier's doing. Everything else is a decision of ours.
+  if (reason === 'socket_closed' || reason === 'socket_error') return 'caller';
+  if (reason === 'provider_stop') return 'carrier';
+  if (reason === 'transferred') return 'transfer';
+  return 'agent';
+}
+
 export interface CallSessionLogger {
   info(payload: Record<string, unknown>, message: string): void;
   warn(payload: Record<string, unknown>, message: string): void;
@@ -143,6 +161,14 @@ export class CallSession {
   private lowConfidenceApologies = 0;
   /** Bumped whenever the caller proves they are still there. See noteCallerActivity. */
   private callerActivity = 0;
+  /**
+   * Last moment the CALLER made a sound, never touched by our own audio.
+   *
+   * `lastAudibleAt` deliberately counts the agent too, because it drives the
+   * quiet clock. This one must not: it is the answer to "is someone there?",
+   * and an agent talking to itself is not someone being there.
+   */
+  private lastCallerSoundAt = Date.now();
   /** Synthesis time for the most recent sentence, for the latency log. */
   private lastSynthesisMs = 0;
   /** Synthesis time for the FIRST sentence of the current turn. */
@@ -270,7 +296,14 @@ export class CallSession {
       {
         callRef: this.options.callRef,
         reason,
+        // Who ended it. Reading this back off a real call used to mean
+        // knowing which reason strings came from which layer; a hangup we
+        // caused and one the caller caused looked identical in the log.
+        endedBy: endedBy(reason),
         durationMs: Date.now() - this.startedAt,
+        // Silence at the moment of ending: the single number that says whether
+        // we dropped someone who was still talking.
+        callerQuietForMs: Date.now() - this.lastCallerSoundAt,
         outcome: this.state.outcome ?? 'abandoned',
         turns: this.state.turnCount,
         language: this.language,
@@ -443,12 +476,24 @@ export class CallSession {
             callRef: this.options.callRef,
             streak: this.lowConfidenceStreak,
             apologies: this.lowConfidenceApologies,
+            callerPresent: this.callerPresent,
           },
-          'giving up on a line we cannot hear — offering a way out',
+          'cannot hear this line — offering a way out, but staying on the call',
         );
+        /**
+         * Offer a route out; do NOT end the call.
+         *
+         * This branch used to run `handOver()`, which with no transfer route
+         * spoke TRANSFER_UNAVAILABLE and hung up — so four low-confidence
+         * results in a row dropped the caller at roughly ten seconds, while
+         * they were still audibly talking. A caller we cannot transcribe is
+         * still a caller. `handOver` no longer hangs up either, but reaching
+         * it at all was the wrong response to a bad line.
+         */
         this.state.outcome ??= 'transferred';
         await this.speak(CANNOT_HEAR[this.language]);
-        await this.handOver();
+        this.forgetTrouble();
+        this.startSilenceWatch();
         return;
       }
 
@@ -778,10 +823,11 @@ export class CallSession {
         { callRef: this.options.callRef, hasRoute: Boolean(this.options.onTransfer), to },
         'transfer requested but no route is configured',
       );
+      // Say so and KEEP LISTENING. This path used to hang up, which meant a
+      // caller we merely could not transcribe was dropped mid-sentence.
       await this.speak(TRANSFER_UNAVAILABLE[this.language]);
-      await this.playback.whenDrained();
-      await this.stop('transfer_unavailable');
-      this.options.onHangUp();
+      this.forgetTrouble();
+      this.startSilenceWatch();
       return;
     }
 
@@ -797,10 +843,22 @@ export class CallSession {
         'transfer failed',
       );
       await this.speak(TRANSFER_UNAVAILABLE[this.language]);
-      await this.playback.whenDrained();
-      await this.stop('transfer_failed');
-      this.options.onHangUp();
+      this.forgetTrouble();
+      this.startSilenceWatch();
     }
+  }
+
+  /**
+   * Give the caller a clean slate after an escape path has had its say.
+   *
+   * Without this the counters stay maxed, so the very next low-confidence
+   * result walks straight back into the same dead end and the agent repeats
+   * its apology forever — the loop again, just one level up.
+   */
+  private forgetTrouble(): void {
+    this.lowConfidenceStreak = 0;
+    this.lowConfidenceApologies = 0;
+    this.silencePrompts = 0;
   }
 
   // --- speech out ------------------------------------------------------------
@@ -921,7 +979,56 @@ export class CallSession {
    */
   private noteCallerActivity(): void {
     this.lastAudibleAt = Date.now();
+    this.lastCallerSoundAt = Date.now();
     this.callerActivity++;
+  }
+
+  /**
+   * Has the caller made any sound recently?
+   *
+   * The agent must never hang up on someone who is audibly there — a caller
+   * dropped mid-call has no idea what happened and no way back. Recognising
+   * nothing is not absence: a bad line, an accent, a noisy room all produce
+   * sound we cannot transcribe, and every one of those is a person waiting.
+   */
+  private get callerPresent(): boolean {
+    return Date.now() - this.lastCallerSoundAt < this.recognition.presenceWindowMs;
+  }
+
+  /**
+   * End the call ourselves — the ONLY place that does.
+   *
+   * Refuses while the caller is audibly present, no matter which ladder asked.
+   * Every escape path used to end in a hangup, so a caller the recogniser
+   * could not understand got dropped at around ten seconds while they were
+   * still talking. Now those paths say their piece and keep listening; only a
+   * line with no sound at all for `abandonAfterMs` is actually ended.
+   */
+  private async hangUp(reason: string): Promise<boolean> {
+    const quietForMs = Date.now() - this.lastCallerSoundAt;
+
+    if (this.callerPresent || quietForMs < this.recognition.abandonAfterMs) {
+      this.options.logger.info(
+        {
+          callRef: this.options.callRef,
+          reason,
+          quietForMs,
+          presenceWindowMs: this.recognition.presenceWindowMs,
+          abandonAfterMs: this.recognition.abandonAfterMs,
+        },
+        'declined to hang up — the caller is still there',
+      );
+      return false;
+    }
+
+    this.options.logger.warn(
+      { callRef: this.options.callRef, reason, quietForMs, endedBy: 'agent' },
+      'hanging up — our decision, the line has been silent',
+    );
+    await this.playback.whenDrained();
+    await this.stop(reason);
+    this.options.onHangUp();
+    return true;
   }
 
   private async onSilence(): Promise<void> {
@@ -946,17 +1053,32 @@ export class CallSession {
       return;
     }
 
-    // Reprompted to the limit and still nothing: offer a callback and hang up
-    // cleanly rather than holding an empty line open indefinitely.
+    /**
+     * Reprompted to the limit.
+     *
+     * Offer the callback, then let `hangUp` decide — and it only agrees if the
+     * caller has made no sound at all for `abandonAfterMs`. Someone who is
+     * audibly there but not being understood keeps the line and gets another
+     * round of the ladder rather than being dropped.
+     */
     this.options.logger.info(
-      { callRef: this.options.callRef, reprompts: this.silencePrompts },
-      'no answer after every reprompt — offering a callback and ending',
+      {
+        callRef: this.options.callRef,
+        reprompts: this.silencePrompts,
+        callerPresent: this.callerPresent,
+      },
+      'no answer after every reprompt — offering a callback',
     );
-    this.state.outcome ??= 'abandoned';
     await this.speak(CALLBACK_OFFER[this.language]);
-    await this.playback.whenDrained();
-    await this.stop('silence');
-    this.options.onHangUp();
+
+    if (await this.hangUp('silence')) {
+      this.state.outcome ??= 'abandoned';
+      return;
+    }
+
+    // Still there. Reset the ladder so it can check in again later.
+    this.silencePrompts = 0;
+    this.startSilenceWatch();
   }
 
   // --- persistence -----------------------------------------------------------

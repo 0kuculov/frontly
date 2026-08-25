@@ -125,17 +125,39 @@ export const recognitionConfigSchema = z.object({
    * and driven by timing rather than by any tunable delay.
    *
    * A caller mid-sentence who gets silence just keeps talking, and their next
-   * result is a whole sentence that scores fine. So the first one says nothing.
+   * result is a whole sentence that scores fine. So the first ones say nothing.
    */
-  silentLowConfidenceTurns: z.number().int().min(0).max(3).default(1),
+  silentLowConfidenceTurns: z.number().int().min(0).max(5).default(2),
   /**
    * How long to wait before an apology, and — the point — a window in which the
    * caller resuming cancels it entirely.
    *
    * A delay alone would only move the collision later. What breaks the loop is
    * abandoning the apology when the caller turns out to have been mid-sentence.
+   *
+   * Generous on purpose. A caller working out which day suits them is the
+   * NORMAL case on a booking call, not an error state, and 500 ms was still
+   * tight enough to fire while someone was thinking. The cost of waiting too
+   * long is a beat of silence; the cost of waiting too little is talking over
+   * the caller, which is what starts the loop.
    */
-  lowConfidenceHoldMs: z.number().int().min(0).max(3000).default(500),
+  lowConfidenceHoldMs: z.number().int().min(0).max(8000).default(1500),
+  /**
+   * A caller who made any sound within this window counts as PRESENT, and the
+   * agent will never hang up on a present caller for any reason.
+   *
+   * Bumped by speech energy, partials and finals — never by our own audio.
+   */
+  presenceWindowMs: z.number().int().min(1000).max(120_000).default(20_000),
+  /**
+   * Total caller silence — no energy at all, not merely nothing recognised —
+   * before the line is accepted as abandoned and actually hung up.
+   *
+   * Deliberately long. Every other escape path now keeps listening instead of
+   * ending the call, so this is the ONLY route to an agent-initiated hangup,
+   * and it exists so a genuinely dead line does not stay billable forever.
+   */
+  abandonAfterMs: z.number().int().min(15_000).max(600_000).default(120_000),
   /**
    * Apologies actually SPOKEN before the agent stops retrying and offers a way
    * out. Silent holds do not count against it, so raising the silent budget

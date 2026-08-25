@@ -45,6 +45,19 @@ pnpm --filter @frontly/api simulate:call   # a whole call, no phone involved
 pnpm --filter @frontly/core bench          # first-token vs first-sentence
 ```
 
+## The working copy is `C:\dev\Frontly`. Never under OneDrive.
+
+**OneDrive silently reverts files.** The repo used to live in
+`C:\Users\...\OneDrive\Desktop\Frontly`, and OneDrive restored `.env` from an
+older synced version twice — emptying live credentials mid-session. The tell is
+an **mtime that moves backwards**: a write cannot stamp a file in the past, so a
+timestamp older than a read you already did means sync replaced the file, not
+that anyone edited it.
+
+Beyond `.env`, a sync client racing a build over `node_modules/`, `dist/` and
+`.next/` corrupts state in ways that look like compiler bugs. Keep the repo on
+a plain local path.
+
 ## `.env` is the owner's file. Never write to it.
 
 **Do not write, overwrite, regenerate, `cp .env.example .env`, `sed -i`, or

@@ -350,8 +350,13 @@ describe('a call', () => {
     // And nothing further goes out: the agent actually stopped.
     expect(h.frames.length).toBe(framesAtBargeIn);
 
-    await started;
+    // Stop BEFORE awaiting the greeting: stop() interrupts playback, so the
+    // test no longer sits through 400 frames of it. On Windows setTimeout(fn, 1)
+    // actually fires at ~15ms, making that wait ~6s — just past vitest's 5s
+    // default, so this passed or failed depending on whether some other app
+    // happened to have raised the system timer resolution.
     await h.session.stop('test');
+    await started;
   });
 
   it('keeps talking through a cough that never becomes words', async () => {
@@ -369,8 +374,13 @@ describe('a call', () => {
     expect(h.clears).toBe(0);
     expect(h.logs.some((l) => l.message === 'ignored a noise burst that was not speech')).toBe(true);
 
-    await started;
+    // Stop BEFORE awaiting the greeting: stop() interrupts playback, so the
+    // test no longer sits through 400 frames of it. On Windows setTimeout(fn, 1)
+    // actually fires at ~15ms, making that wait ~6s — just past vitest's 5s
+    // default, so this passed or failed depending on whether some other app
+    // happened to have raised the system timer resolution.
     await h.session.stop('test');
+    await started;
   });
 
   it('gives up waiting and interrupts on sustained speech with no transcript yet', async () => {
@@ -386,8 +396,13 @@ describe('a call', () => {
     await settle(60);
 
     expect(h.clears).toBe(1);
-    await started;
+    // Stop BEFORE awaiting the greeting: stop() interrupts playback, so the
+    // test no longer sits through 400 frames of it. On Windows setTimeout(fn, 1)
+    // actually fires at ~15ms, making that wait ~6s — just past vitest's 5s
+    // default, so this passed or failed depending on whether some other app
+    // happened to have raised the system timer resolution.
     await h.session.stop('test');
+    await started;
   });
 
   it('ignores a partial too short to be anything but noise', async () => {
@@ -405,8 +420,13 @@ describe('a call', () => {
     h.provider.stt!.handlers.onPartial?.('може');
     expect(h.clears).toBe(1);
 
-    await started;
+    // Stop BEFORE awaiting the greeting: stop() interrupts playback, so the
+    // test no longer sits through 400 frames of it. On Windows setTimeout(fn, 1)
+    // actually fires at ~15ms, making that wait ~6s — just past vitest's 5s
+    // default, so this passed or failed depending on whether some other app
+    // happened to have raised the system timer resolution.
     await h.session.stop('test');
+    await started;
   });
 
   it('admits it did not catch a low-confidence utterance', async () => {

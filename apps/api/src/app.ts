@@ -4,6 +4,7 @@ import sensible from '@fastify/sensible';
 import websocket from '@fastify/websocket';
 import { createDb, enableForeignKeys, type Database } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
+import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerDemoRoutes } from './routes/demo.js';
 import { registerSmsRoutes } from './routes/sms.js';
 import { healthRoutes } from './routes/health.js';
@@ -83,6 +84,7 @@ export async function buildApp(
    */
   let voiceChannel: { carrier: string; prefix: string } | undefined;
 
+  await app.register(registerDashboardRoutes, { db, env });
   await app.register(registerDemoRoutes, { db, env });
 
   await app.register(healthRoutes, {

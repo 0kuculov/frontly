@@ -11,6 +11,7 @@ export const ID_PREFIXES = {
   staff: 'stf',
   appointment: 'apt',
   conversation: 'conv',
+  user: 'usr',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

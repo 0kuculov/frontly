@@ -231,6 +231,49 @@ export const conversations = sqliteTable(
 
 // --- relations -------------------------------------------------------------
 
+// --- users -----------------------------------------------------------------
+
+/**
+ * Who can open the dashboard.
+ *
+ * Scoped to ONE business by a hard foreign key rather than a role column,
+ * because the product is single-tenant per login: a clinic owner sees their
+ * clinic and there is no "all businesses" view to leak into. Multi-clinic
+ * chains are a later problem, and a `businessId` on the session is a much
+ * smaller thing to get right than a permission matrix.
+ *
+ * No password column — only a hash and its salt. `scrypt` from node:crypto,
+ * so authentication adds no dependency: bcrypt and argon2 are both native
+ * modules, and this repo has already been bitten once by native postinstalls
+ * (see `allowBuilds` in pnpm-workspace.yaml).
+ */
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => newId('user')),
+    businessId: text('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    /** Stored lowercased; the unique index is what makes that matter. */
+    email: text('email').notNull(),
+    /** scrypt hash, hex. */
+    passwordHash: text('password_hash').notNull(),
+    /** Per-user random salt, hex. Never reused between users. */
+    passwordSalt: text('password_salt').notNull(),
+    name: text('name'),
+    lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
+    ...timestamps,
+  },
+  (t) => [
+    // Case is folded on the way in, so this is a real uniqueness guarantee
+    // rather than one that "Ana@" and "ana@" can walk around.
+    uniqueIndex('users_email_unique').on(t.email),
+    index('users_business_idx').on(t.businessId),
+  ],
+);
+
 export const businessesRelations = relations(businesses, ({ many }) => ({
   services: many(services),
   staff: many(staff),
@@ -274,3 +317,5 @@ export type Appointment = typeof appointments.$inferSelect;
 export type NewAppointment = typeof appointments.$inferInsert;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;

@@ -568,6 +568,73 @@ add drizzle to the API.
   Moving numbers next to a blank transcript is that misconfiguration, not a
   broken stream.
 
+### The dashboard (Phase 4)
+
+- **The dashboard is a CLIENT of the API, not a second copy of it.** That
+  decision predates Phase 4 — it is written in `apps/web/next.config.ts` — and
+  it is why `apps/web` has no drizzle in it and why `/dashboard/*` routes exist
+  at all. Every read goes over HTTP so Vercel and Render cannot disagree about
+  the data, and the database credentials stay on one machine. Do not "simplify"
+  this by querying Turso from a server component.
+- **Auth is a bearer token, not a cookie, and that is deliberate.** The two
+  halves live on different origins, so a cookie set by the API would be
+  cross-site and need `SameSite=None; Secure` plus credentialed CORS on every
+  request. Instead: the browser holds an httpOnly cookie on the DASHBOARD's
+  origin, and the dashboard's own server sends the token to the API in a
+  header. The token never reaches client JavaScript, and there is no
+  third-party cookie to be blocked.
+- **The session check lives in the layout, not in middleware.** Middleware runs
+  on the edge runtime where `node:crypto` does not exist, and the token is an
+  HMAC. One redirect in a server component is cheaper than a second auth
+  implementation.
+- **Every dashboard query filters on the session's `businessId`, and that IS
+  the tenancy boundary** — not defence in depth. A query that forgets it
+  serves one clinic another clinic's patients. `dashboard.route.test.ts` proves
+  it by asking for a real conversation id belonging to another business and
+  requiring a 404.
+- **`scrypt` from node:crypto, not bcrypt or argon2.** Both of those are native
+  modules, and this repo has already lost a deploy to native postinstalls once
+  (`allowBuilds` in pnpm-workspace.yaml). Login is not hot enough to justify
+  re-opening that.
+- **`pnpm db:create-owner --email <address>`** creates or re-passwords the
+  login. The password is read from stdin — interactively when a TTY is
+  present, piped otherwise — and never from a `--password` flag, which would
+  put it in shell history, the process list, and any screenshot of the
+  terminal taken during a demo.
+- **The design shares the /demo screen's identity and none of its scale.** Same
+  Cyrillic-native faces (Golos Text, IBM Plex Mono) and the same signal blue,
+  because they are one product; but the demo is 17-22px for a projector ten
+  metres away and the dashboard is 14px for a laptop at forty centimetres, and
+  the demo's fixed full-viewport grid becomes an ordinary scrolling page.
+  - **The day rail is the one bold element** and everything else is quiet on
+    purpose. A clinic's day IS a column of time — the appointment book is the
+    object this software replaces — so gaps between patients are drawn to
+    scale via a `--gap-mins` custom property, clamped so a three-hour hole
+    cannot push the day off screen. A grid of metric cards was the default
+    answer and would have said nothing.
+  - **Badges carry a label AND a shape, never colour alone** (circle, square,
+    triangle, bar).
+  - `ui-ux-pro-max` supplied the palette family and confirmed the density, but
+    three of its recommendations were discarded and the reasons matter:
+    its pattern was a marketing landing page (this is an authenticated tool),
+    its style was "Exaggerated Minimalism" at `clamp(3rem, 10vw, 12rem)` (the
+    opposite of "calm and legible"), and its font pairing was **Figtree, which
+    has no Cyrillic coverage at all** — disqualifying for a Macedonian UI.
+    Always check Cyrillic coverage before accepting a font recommendation.
+- **Read-only on purpose in Phase 4:** the calendar (dragging an appointment
+  means re-running availability, staff competence and the double-booking
+  guard), and services/staff/working-hours. `inboundNumber` is not editable
+  anywhere — it is the carrier's truth, and a typo silently unroutes every
+  incoming call. The API refuses it too, so it is a locked door behind a
+  locked door.
+- **Next uses bundler resolution, so relative imports in `apps/web` must NOT
+  carry `.js` extensions** — the opposite of every other package here, which is
+  NodeNext and requires them.
+- **Never run `next build` while a dev server is serving the same `.next`.**
+  They corrupt each other's output and the symptom is a bogus
+  `Cannot find module './472.js'` on an unrelated route. Clearing `.next` and
+  restarting is the fix.
+
 ### SMS (Phase 6), and why the obvious registration is the wrong one
 
 - **The number cannot text a single real customer.** Checked on the live

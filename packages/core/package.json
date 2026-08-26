@@ -28,6 +28,7 @@
     "bench": "tsx scripts/bench-turn.ts",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
+    "db:create-owner": "tsx scripts/create-owner.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:migrate:dist": "node dist/db/migrate.js",
     "db:push": "drizzle-kit push",

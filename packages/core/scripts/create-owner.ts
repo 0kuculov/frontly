@@ -3,7 +3,7 @@ import { stdin, stdout } from 'node:process';
 import { createDb } from '../src/db/client.js';
 import { loadRootEnv } from '../src/db/paths.js';
 import { DEMO_IDS } from '../src/db/seed.js';
-import { createUser, findUserByEmail, setPassword } from '../src/db/users.js';
+import { createUser, findUserByEmail, setPassword, verifyPassword } from '../src/db/users.js';
 import { listBusinesses } from '../src/db/queries.js';
 
 /**
@@ -11,6 +11,7 @@ import { listBusinesses } from '../src/db/queries.js';
  *
  *   pnpm db:create-owner --email ana@dental.mk
  *   pnpm db:create-owner --email ana@dental.mk --business biz_demo_dental_ohrid
+ *   pnpm db:create-owner --email ana@dental.mk --verify   # check it, change nothing
  *
  * The password is asked for interactively and never taken from a flag, so it
  * does not end up in shell history, in a process list, or in a screenshot of
@@ -85,12 +86,38 @@ async function main(): Promise<void> {
     console.error('\n  Too short. Use at least 10 characters.\n');
     process.exit(1);
   }
-  if (password !== again) {
+  const verifying = process.argv.includes('--verify');
+
+  if (password !== again && !verifying) {
     console.error('\n  They do not match. Nothing was changed.\n');
     process.exit(1);
   }
 
   const existing = await findUserByEmail(db, email);
+
+  /**
+   * `--verify` answers "is this actually my password?" without changing it.
+   *
+   * The thing that prompts a password reset is almost never a bad hash — it is
+   * "is the API even running, and am I pointed at the database I think I am".
+   * This answers both against the same database the API reads, and writes
+   * nothing.
+   */
+  if (verifying) {
+    if (!existing) {
+      console.error(`\n  No account for ${email} in THIS database (${describeUrl(url)}).\n`);
+      process.exit(1);
+    }
+    const ok = await verifyPassword(password, existing.passwordHash, existing.passwordSalt);
+    console.log(
+      ok
+        ? `\n  Correct. ${email} authenticates against ${describeUrl(url)}.\n`
+        : `\n  Wrong password for ${email}. Re-run without --verify to set a new one.\n`,
+    );
+    db.$client.close();
+    process.exit(ok ? 0 : 1);
+  }
+
   if (existing) {
     await setPassword(db, existing.id, password);
     console.log(`\n  Password updated for ${email}.\n`);

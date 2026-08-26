@@ -128,17 +128,30 @@ export async function apiPatch(
 export async function apiLogin(
   email: string,
   password: string,
-): Promise<{ token: string } | { error: string }> {
-  const response = await fetch(`${API}/dashboard/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-    cache: 'no-store',
-  });
+): Promise<{ token: string } | { error: 'invalid_credentials' | 'api_unreachable' }> {
+  let response: Response;
+  try {
+    response = await fetch(`${API}/dashboard/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      cache: 'no-store',
+    });
+  } catch {
+    /**
+     * The API is not answering at all — not running, wrong port, wrong host.
+     *
+     * Reported separately from a rejected password because they are not the
+     * same problem and do not have the same fix. This used to throw, so a
+     * stopped API produced an unhandled exception that looked exactly like bad
+     * credentials, and the owner would go and reset a password that was never
+     * wrong.
+     */
+    return { error: 'api_unreachable' };
+  }
 
   if (!response.ok) {
-    const detail = (await response.json().catch(() => ({}))) as { error?: string };
-    return { error: detail.error ?? 'invalid_credentials' };
+    return { error: 'invalid_credentials' };
   }
   return (await response.json()) as { token: string };
 }

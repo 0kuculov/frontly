@@ -99,6 +99,10 @@ export const DICT = {
     mk: 'Погрешна е-пошта или лозинка.',
     en: 'That email and password do not match.',
   },
+  signInUnreachable: {
+    mk: 'Серверот не одговара. Стартувај го со „pnpm dev:api“ и обиди се повторно.',
+    en: 'The API is not answering. Start it with "pnpm dev:api" and try again.',
+  },
   signInTagline: {
     mk: 'AI рецепционер што одговара на повици и закажува термини.',
     en: 'An AI receptionist that answers calls and books appointments.',

@@ -33,9 +33,16 @@ export default async function LoginPage({
     const result = await apiLogin(email, password);
 
     if ('error' in result) {
-      // One message for every failure. Telling someone the email exists but
-      // the password is wrong is how an account list gets built.
-      redirect('/login?error=1');
+      /**
+       * Two messages, and only two.
+       *
+       * "Wrong password" and "no such account" stay indistinguishable — telling
+       * them apart is how an account list gets built. But "the API is not
+       * answering" is a different problem with a different fix, and collapsing
+       * it into the credentials message sends the owner off to reset a
+       * password that was never wrong.
+       */
+      redirect(result.error === 'api_unreachable' ? '/login?error=api' : '/login?error=1');
     }
 
     await setSessionToken(result.token);
@@ -53,7 +60,7 @@ export default async function LoginPage({
 
         {error && (
           <p className="notice" data-kind="bad">
-            {t('signInFailed')}
+            {error === 'api' ? t('signInUnreachable') : t('signInFailed')}
           </p>
         )}
 

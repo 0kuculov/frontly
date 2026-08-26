@@ -77,7 +77,7 @@ export async function buildApp(
    */
   let voiceChannel: { carrier: string; prefix: string } | undefined;
 
-  await app.register(registerDemoRoutes, { db });
+  await app.register(registerDemoRoutes, { db, env });
 
   await app.register(healthRoutes, {
     db,

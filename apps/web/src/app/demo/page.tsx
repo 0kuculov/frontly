@@ -14,6 +14,18 @@ import './demo.css';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 
+/**
+ * Sent with the reset, because the deployed API will not empty the clinic for
+ * an anonymous POST any more.
+ *
+ * NEXT_PUBLIC_ means this ends up in the browser bundle, so it is a lock on
+ * the door rather than a real secret — it stops a scanner or a curious judge
+ * blanking the numbers mid-pitch, which is the whole threat. The guard that
+ * actually matters lives on the API: a dev server may only ever reset a local
+ * file database, whatever token it presents.
+ */
+const RESET_TOKEN = process.env.NEXT_PUBLIC_DEMO_RESET_TOKEN ?? '';
+
 /** Mirrors CallEvent in apps/api/src/demo/events.ts. */
 type CallEvent =
   | { type: 'call.started'; callRef: string; from?: string; at: number }
@@ -48,6 +60,7 @@ export default function DemoPage() {
   const [connected, setConnected] = useState(false);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(0);
 
@@ -124,11 +137,29 @@ export default function DemoPage() {
   const reset = async () => {
     setResetting(true);
     try {
-      await fetch(`${API}/demo/reset`, { method: 'POST' });
+      const response = await fetch(`${API}/demo/reset`, {
+        method: 'POST',
+        headers: RESET_TOKEN ? { Authorization: `Bearer ${RESET_TOKEN}` } : {},
+      });
+      /**
+       * A refused reset must not look like a successful one.
+       *
+       * Clearing the transcript regardless would show an empty screen beside
+       * metrics that never moved — the exact "is it broken or is it working?"
+       * moment there is no time for on stage. The guard refuses on purpose
+       * (a dev server pointed at production, or a missing token), so say so
+       * quietly in the corner and leave the screen alone.
+       */
+      if (!response.ok) {
+        setResetError(response.status === 403 ? 'reset blocked: live database' : 'reset refused');
+        return;
+      }
+      setResetError(null);
       setEntries([]);
       await loadMetrics();
     } catch {
       // Leave the screen as it was rather than half-clearing it.
+      setResetError('reset unreachable');
     } finally {
       setResetting(false);
     }
@@ -148,6 +179,9 @@ export default function DemoPage() {
         <span className="link" data-state={connected ? 'up' : 'down'}>
           {connected ? 'Поврзано' : 'Се поврзува'}
         </span>
+        {/* Quiet, in the corner, in the same register as the link indicator —
+            never a dialog in front of judges. */}
+        {resetError ? <span className="link" data-state="down">{resetError}</span> : null}
         <button className="reset" onClick={() => void reset()} disabled={resetting}>
           {resetting ? 'Се ресетира' : 'Ресетирај демо'}
         </button>

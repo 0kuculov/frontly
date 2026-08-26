@@ -7,10 +7,12 @@ import {
   type TestDatabase,
 } from '@frontly/core';
 import { DEFAULT_VOICE_CONFIG, emptyWorkingHours, serverEnvSchema } from '@frontly/shared';
-import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { callEvents } from '../demo/events.js';
+import { registerDemoRoutes, resetRefusal } from './demo.js';
 import type { ISpeechProvider, ISpeechToText, ITextToSpeech } from '../voice/types.js';
 
 /**
@@ -37,15 +39,16 @@ const inertSpeech: ISpeechProvider = {
 
 let app: FastifyInstance;
 let testDb: TestDatabase;
+let baseEnv: ReturnType<typeof serverEnvSchema.parse>;
 
 beforeAll(async () => {
   testDb = await createTestDb({ seed: true });
-  const env = serverEnvSchema.parse({
+  baseEnv = serverEnvSchema.parse({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
     DATABASE_URL: testDb.url,
   });
-  ({ app } = await buildApp(env, { speechProvider: inertSpeech, warmSpeechCache: false }));
+  ({ app } = await buildApp(baseEnv, { speechProvider: inertSpeech, warmSpeechCache: false }));
   await app.ready();
 });
 
@@ -144,6 +147,99 @@ describe('the demo screen', () => {
   });
 });
 
+describe('the reset guard', () => {
+  /**
+   * The failure this exists to prevent: a laptop running `pnpm dev` with the
+   * owner's .env, which points DATABASE_URL at the same Turso database Render
+   * serves. The reset button on localhost:3000 then wipes the live clinic —
+   * its call history, its bookings and every number on the stage screen — and
+   * nothing about the screen suggests it is talking to production.
+   */
+  const remote = 'libsql://frontly-0kuculov.aws-eu-west-1.turso.io';
+  const local = 'file:./frontly.db';
+
+  it('refuses to reset a remote database from a dev server', () => {
+    const refusal = resetRefusal(
+      { NODE_ENV: 'development', DATABASE_URL: remote, DEMO_RESET_TOKEN: undefined },
+      undefined,
+    );
+    expect(refusal?.code).toBe(403);
+    // The message has to name the database, because the whole problem is not
+    // knowing which one you are pointed at.
+    expect(refusal?.message).toContain('libsql://');
+  });
+
+  it('lets a dev server reset its own file database', () => {
+    expect(
+      resetRefusal(
+        { NODE_ENV: 'development', DATABASE_URL: local, DEMO_RESET_TOKEN: undefined },
+        undefined,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('requires the token in production', () => {
+    const env = { NODE_ENV: 'production' as const, DATABASE_URL: remote, DEMO_RESET_TOKEN: 's3cret' };
+    // Unauthenticated is how it shipped: POST /demo/reset from anywhere on the
+    // internet emptied the clinic mid-pitch.
+    expect(resetRefusal(env, undefined)?.code).toBe(401);
+    expect(resetRefusal(env, 'wrong')?.code).toBe(401);
+    // A wrong token of a different length must not be distinguishable by how
+    // long the comparison took.
+    expect(resetRefusal(env, 'a')?.code).toBe(401);
+    expect(resetRefusal(env, 's3cret')).toBeUndefined();
+  });
+
+  /**
+   * The rules above are a pure function; this is the wiring.
+   *
+   * Worth its own test because the two failure modes are not the same: a
+   * correct rule that the route forgets to consult deletes the live clinic
+   * just as thoroughly as no rule at all, and every unit test above would
+   * still be green. The database here is the local test file — the point is
+   * to prove the DELETE never runs, so it has to be a database we can check.
+   */
+  it('refuses over HTTP without touching the tables', async () => {
+    const guarded = Fastify({ logger: false });
+    await guarded.register(registerDemoRoutes, {
+      db: testDb.db,
+      env: { ...baseEnv, NODE_ENV: 'development', DATABASE_URL: remote },
+    });
+
+    await testDb.db.insert(conversations).values({
+      id: 'conv_must_survive',
+      businessId: DEMO_IDS.business,
+      channel: 'voice',
+      externalId: 'CA_survivor',
+      startedAt: new Date(),
+      transcript: [],
+    });
+
+    const response = await guarded.inject({ method: 'POST', url: '/demo/reset' });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe('reset_refused');
+
+    // The row is still there: the guard returned before the delete, rather
+    // than deleting and then reporting a refusal.
+    const left = await testDb.db.select().from(conversations);
+    expect(left.map((row) => row.id)).toContain('conv_must_survive');
+
+    await guarded.close();
+    await testDb.db.delete(conversations).where(eq(conversations.id, 'conv_must_survive'));
+  });
+
+  it('fails closed when production has no token configured', () => {
+    // Render generates this value, so an absent one means something is wrong
+    // with the deploy — and an open wipe endpoint is the worse of the two
+    // failures to ship.
+    const refusal = resetRefusal(
+      { NODE_ENV: 'production', DATABASE_URL: remote, DEMO_RESET_TOKEN: undefined },
+      undefined,
+    );
+    expect(refusal?.code).toBe(503);
+  });
+});
+
 describe('the event bus', () => {
   it('replays what a dropped connection missed', () => {
     const bus = callEvents;
@@ -178,5 +274,36 @@ describe('the event bus', () => {
 
     stopBad();
     stopGood();
+  });
+});
+
+describe('the event stream over a real socket', () => {
+  /**
+   * app.inject() cannot see this bug. The handler writes its headers straight
+   * to the raw socket, and the thing that was missing — the CORS headers
+   * @fastify/cors staged on the Fastify reply — only matters to a browser on
+   * another origin. So this one test needs a real listener and a real fetch.
+   */
+  it('sends CORS headers on the stream, not only on /demo/metrics', async () => {
+    const address = await app.listen({ port: 0, host: '127.0.0.1' });
+    const controller = new AbortController();
+
+    const response = await fetch(`${address}/demo/stream`, {
+      headers: { Origin: 'http://localhost:3000' },
+      signal: controller.signal,
+    });
+
+    try {
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      /**
+       * Without this the stage screen loads its numbers and then silently
+       * never opens EventSource: metrics work, the transcript stays blank,
+       * and the only evidence is in the browser console of the laptop
+       * driving the projector.
+       */
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+    } finally {
+      controller.abort();
+    }
   });
 });

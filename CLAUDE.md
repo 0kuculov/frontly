@@ -309,6 +309,23 @@ add drizzle to the API.
   `recognitionPhrases()` still exists and is still passed; only the weight gates
   it. `pnpm --filter @frontly/api sweep:phrases` re-measures the whole grid.
   Re-run it before assuming any of this holds for sq-AL, en-US or a new SDK.
+  - **Verified end to end on 26 Aug 2026: the list never reaches a live call.**
+    `azure.ts` attaches a `PhraseListGrammar` only when
+    `recognition.phraseListWeight > 0`; the live weight comes from
+    `recognitionFor(business.voiceConfig)`, and the seeded clinic's
+    `voice_config` in Turso carries **no `recognition` key at all**, so every
+    field falls to the schema default and the weight is 0. Checked against the
+    production row, not inferred from the default.
+  - **`verify:azure`'s old "+list" row was two baseline runs.** It called
+    `recognize(audio, [language], phrases)` with no `recognition` config, so it
+    fell back to `DEFAULT_RECOGNITION_CONFIG` — weight 0 — and the grammar was
+    skipped on *both* sides. The `+0.00` it printed was a run agreeing with
+    itself, and read as an A/B it said "the list is harmless", the exact
+    opposite of the sweep's finding. The row is gone; `sweep:phrases` is the
+    only script that sets the weight and so the only one that can A/B this.
+  - **`tune:speech --phrase-weight <n>` can still switch it back on** against
+    the live business row, with no deploy and no test failure. It is the one
+    remaining way to re-enable a measured-harmful setting in production.
 - **The repeat-after-a-mishearing loop was NOT the reprompt timer.** Every
   low-confidence result spoke the same apology, uncapped: `lowConfidenceStreak
   >= 2` set an outcome field and changed no behaviour whatsoever. On a poor
@@ -378,6 +395,44 @@ add drizzle to the API.
 - Always synthesize speech via **SSML**, never plain text — plain text silently
   drops the prosody rate that makes the agent intelligible on an 8kHz line.
   Voice name and rate are **per-business config**, never constants.
+
+- **`.env` points at the SAME Turso database Render serves, so a local dev
+  server is a production client.** It has to — that is how the seeded clinic is
+  maintained — but it means `pnpm dev` plus the demo screen's reset button used
+  to delete the live clinic's call history, its bookings and every number on
+  the stage screen, from localhost, with nothing on screen naming the database.
+  `POST /demo/reset` was also **unauthenticated on the public internet**, so
+  anyone who guessed the path could blank the numbers mid-pitch.
+  `resetRefusal()` in `routes/demo.ts` now decides, and it is two rules because
+  they are two different accidents:
+  - A process that is not production may only reset a `file:` database — its
+    own. Presenting a token does not help; the rule is about which database.
+  - Production requires `DEMO_RESET_TOKEN` (declared in the env schema and
+    `render.yaml` since Phase 7 and, like `ANTHROPIC_MODEL` before it, read by
+    nobody until now). A deploy without one **fails closed** with 503: an open
+    wipe endpoint is the worse of the two failures to ship.
+  The dashboard sends it as `Authorization: Bearer`, from
+  `NEXT_PUBLIC_DEMO_RESET_TOKEN` — which lands in the browser bundle, so it is
+  a lock on the door, not a secret. The rule that actually protects production
+  is the first one, and it holds whatever the caller presents.
+- **A raw-socket response drops every header a Fastify plugin staged.**
+  `/demo/stream` writes SSE with `reply.raw.writeHead()` and never calls
+  `reply.send()`, so the `Access-Control-Allow-Origin` that `@fastify/cors`
+  set via `reply.header()` in its `onRequest` hook was never serialized. The
+  failure is invisible from `app.inject()` and from same-origin dev, and lands
+  precisely on stage: `/demo/metrics` answers with CORS headers so the numbers
+  populate, while `EventSource` from the Vercel screen (or from localhost
+  pointed at Render) is blocked by the browser and **the transcript stays
+  blank forever**. `corsHeaders()` copies them across by name. Confirmed live
+  before the fix: metrics returned the header, `/demo/stream` did not.
+  Any future route that writes to `reply.raw` inherits this bug.
+- **The demo screen's event bus is in-process, so it only sees calls that
+  reached THAT instance.** A real call to +1 619 349 7599 is handled by Render.
+  A demo screen pointed at `http://localhost:8080` (the default when
+  `NEXT_PUBLIC_API_URL` is unset) subscribes to the laptop's empty bus, while
+  `/demo/metrics` beside it queries Turso and shows real production numbers.
+  Moving numbers next to a blank transcript is that misconfiguration, not a
+  broken stream.
 
 ### Telnyx, and the Twilio assumptions that do not survive it
 

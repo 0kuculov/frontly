@@ -108,8 +108,21 @@ async function main(): Promise<void> {
     mk: recognitionPhrases({ ...context, language: 'mk' }),
     en: recognitionPhrases({ ...context, language: 'en' }),
   };
-  console.log(`phrase list: ${vocabulary.mk?.length ?? 0} phrases for mk
-`);
+  /**
+   * Say that it is OFF, because the number alone read as "119 phrases are
+   * biasing this call" and that is exactly backwards.
+   *
+   * The list is still built from the clinic's record — it costs nothing and
+   * the sweep needs it — but `phraseListWeight` defaults to 0 and the
+   * recognizer skips attaching a grammar entirely at 0. Measured: the list
+   * TRUNCATED Macedonian at the first entry it matched (0.19 against 0.83),
+   * and no weight ever beat the baseline.
+   */
+  console.log(
+    `phrase list: ${vocabulary.mk?.length ?? 0} phrases built for mk, NOT applied ` +
+      '(phraseListWeight 0 — measured harmful; pnpm sweep:phrases re-measures)',
+  );
+  console.log();
   scratch.cleanup();
 
   for (const { language, text } of PHRASES) {
@@ -128,20 +141,18 @@ async function main(): Promise<void> {
     console.log(`   stt  : ${heard ? `"${heard.text}" (confidence ${heard.confidence.toFixed(2)})` : 'NOTHING RECOGNISED'}`);
 
     /**
-     * The same audio again with the clinic's vocabulary biased in.
+     * No "+list" row here any more, because it was not measuring what it said.
      *
-     * Side by side because "phrase lists help telephony STT" is a claim worth
-     * checking against this account, this locale and this audio rather than
-     * being taken from a docs page.
+     * It called recognize() with the phrases but no recognition config, so the
+     * run fell back to DEFAULT_RECOGNITION_CONFIG — weight 0 — and the
+     * recognizer skipped the grammar. Both rows were therefore the baseline,
+     * and the +0.00 delta it printed was two identical runs agreeing with each
+     * other. Read as an A/B it says "the list is harmless", which is the
+     * opposite of what the real sweep found.
+     *
+     * A/B belongs in the script that actually sets the weight:
+     * `pnpm --filter @frontly/api sweep:phrases`.
      */
-    const biased = await recognize(audio, [language], vocabulary[language] ?? []);
-    if (biased) {
-      const delta = biased.confidence - (heard?.confidence ?? 0);
-      console.log(
-        `   +list: "${biased.text}" (confidence ${biased.confidence.toFixed(2)}, ` +
-          `${delta >= 0 ? '+' : ''}${delta.toFixed(2)})`,
-      );
-    }
     console.log();
   }
 

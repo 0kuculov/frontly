@@ -39,6 +39,17 @@ export interface ConversationState {
   appointmentId?: string;
   outcome?: ConversationOutcome;
   transferReason?: string;
+  /**
+   * The conversation reached its natural end — the caller's business is done
+   * and goodbyes have been said. Set by the `end_call` tool.
+   *
+   * Distinct from `outcome`, which says what the call was ABOUT. A booked call
+   * where the caller is still asking questions has an outcome and is not
+   * concluded; an answered question with a goodbye is concluded. The adapter
+   * needs the second thing to know it may hang up, and inferring it from the
+   * first is what made the agent say goodbye and then keep the line open.
+   */
+  concluded?: boolean;
   turnCount: number;
 }
 

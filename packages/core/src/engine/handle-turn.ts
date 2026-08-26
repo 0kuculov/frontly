@@ -204,6 +204,21 @@ export async function handleTurn(
       // If the model spoke before calling a tool, keep it as a fallback so a
       // later failure does not throw away the only thing it said.
       if (spoken && !reply) reply = spoken;
+
+      /**
+       * `end_call` is terminal — stop here rather than asking the model again.
+       *
+       * Every other tool returns data the model needs in order to say
+       * something useful, so the loop goes back for another call. This one
+       * returns nothing to talk about: the goodbye was already spoken as text
+       * in the same message. Going round again would spend a whole extra
+       * generation to produce a SECOND farewell on top of the first, which is
+       * both slower and worse than the thing it replaced.
+       */
+      if (ctx.state.concluded) {
+        completed = true;
+        break;
+      }
     }
 
     if (!completed) {
@@ -234,7 +249,18 @@ export async function handleTurn(
     };
   }
 
-  if (!reply.trim()) {
+  /**
+   * A turn that ended saying nothing is a fault — unless it was concluded.
+   *
+   * `end_call` normally arrives beside a goodbye, but a model that calls it
+   * alone has not malfunctioned, it has simply finished. Treating that as
+   * "the model said nothing at all" put a TRANSFER apology in the caller's
+   * ear at the moment of hanging up, and — worse, because it is silent —
+   * recorded the call as `transferred`, which is the one outcome the stage
+   * metric counts as NOT resolved without the owner. The adapter has a cached
+   * farewell for this case; the engine's job is to not overwrite it.
+   */
+  if (!reply.trim() && !ctx.state.concluded) {
     // The model ended a turn saying nothing at all.
     reply = FALLBACK_REPLY[ctx.state.language];
     ctx.state.outcome ??= 'transferred';

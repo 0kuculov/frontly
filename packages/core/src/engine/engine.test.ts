@@ -529,3 +529,62 @@ describe('streaming for time-to-first-audio', () => {
     expect(result.timings.totalMs).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('ending the conversation', () => {
+  /**
+   * Nothing used to tell an adapter a conversation was OVER. The agent said
+   * its goodbye as ordinary text, the voice session had no idea, and the
+   * silence ladder reprompted a caller who had already been dismissed —
+   * farewell, dead air, "сè уште сте тука?". Heard on a real call.
+   */
+  it('marks the state concluded and asks the model nothing further', async () => {
+    const model = new ScriptedLanguageModel([
+      scriptedToolUse([{ name: 'end_call', input: {} }], 'Пријатен ден.'),
+    ]);
+    const ctx = makeCtx(model);
+
+    const turn = await handleTurn('conv_end', 'Тоа е сè, благодарам.', ctx);
+
+    expect(turn.state.concluded).toBe(true);
+    expect(turn.toolCalls.map((c) => c.name)).toEqual(['end_call']);
+    /**
+     * Exactly one model call. end_call returns nothing to talk about — the
+     * goodbye was already spoken in the same message — so going round again
+     * would spend a whole extra generation producing a second farewell on top
+     * of the first.
+     */
+    expect(model.received).toHaveLength(1);
+    expect(turn.reply).toContain('Пријатен ден');
+  });
+
+  it('concludes even when the goodbye was left unsaid', async () => {
+    const model = new ScriptedLanguageModel([
+      scriptedToolUse([{ name: 'end_call', input: {} }]),
+    ]);
+    const ctx = makeCtx(model);
+
+    const turn = await handleTurn('conv_end_silent', 'Тоа е сè.', ctx);
+
+    // The adapter speaks its own cached farewell in this case; what matters
+    // here is that the engine does not go back to the model for one.
+    expect(turn.state.concluded).toBe(true);
+    expect(model.received).toHaveLength(1);
+    // NOT the "model said nothing" apology, which used to fire here and put a
+    // transfer apology in the caller's ear at the moment of hanging up.
+    expect(turn.reply).toBe('');
+    /**
+     * And NOT recorded as a transfer. `transferred` is the single outcome the
+     * stage metric counts as needing the owner, so mislabelling a clean
+     * goodbye would quietly deflate the headline number.
+     */
+    expect(turn.state.outcome).toBe('info');
+  });
+
+  it('leaves an ordinary turn unconcluded', async () => {
+    const model = new ScriptedLanguageModel([scriptedText('За кој ден ви одговара?')]);
+    const ctx = makeCtx(model);
+
+    const turn = await handleTurn('conv_open', 'Сакам термин.', ctx);
+    expect(turn.state.concluded).toBeUndefined();
+  });
+});

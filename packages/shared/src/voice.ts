@@ -159,6 +159,20 @@ export const recognitionConfigSchema = z.object({
    */
   abandonAfterMs: z.number().int().min(15_000).max(600_000).default(120_000),
   /**
+   * How long to keep the line open after the agent has said goodbye.
+   *
+   * A concluded conversation is NOT an abandoned caller, and the two used to be
+   * indistinguishable: the agent said "пријатен ден", nothing marked the call
+   * as over, and the silence ladder reprompted the caller it had just dismissed
+   * — farewell, dead air, then "сè уште сте тука?". Heard on a real call.
+   *
+   * Long enough for a "довидување" back, short enough that it does not read as
+   * the agent having forgotten to hang up. This window is a courtesy, not a
+   * question: whatever the caller does or does not say, the call ends when it
+   * expires — unless they start a real turn, which cancels the close outright.
+   */
+  farewellGraceMs: z.number().int().min(0).max(10_000).default(2500),
+  /**
    * Apologies actually SPOKEN before the agent stops retrying and offers a way
    * out. Silent holds do not count against it, so raising the silent budget
    * never shortens the caller's real number of chances.

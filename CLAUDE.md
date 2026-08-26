@@ -323,9 +323,14 @@ add drizzle to the API.
     itself, and read as an A/B it said "the list is harmless", the exact
     opposite of the sweep's finding. The row is gone; `sweep:phrases` is the
     only script that sets the weight and so the only one that can A/B this.
-  - **`tune:speech --phrase-weight <n>` can still switch it back on** against
-    the live business row, with no deploy and no test failure. It is the one
-    remaining way to re-enable a measured-harmful setting in production.
+  - **`tune:speech --phrase-weight` now refuses any value above 0.** It used to
+    write a measured-harmful setting straight to the live business row, with no
+    deploy and no test failure, and the next real call picked it up. 0 is still
+    accepted so a stray weight can be zeroed without `--reset` flattening every
+    other tuned value beside it. The refusal runs *before* the database is
+    opened — verified by running it with an empty `DATABASE_URL`. Re-measuring
+    has its own script, which sets the weight on scratch audio and writes to no
+    business row: `sweep:phrases`.
 - **The repeat-after-a-mishearing loop was NOT the reprompt timer.** Every
   low-confidence result spoke the same apology, uncapped: `lowConfidenceStreak
   >= 2` set an outcome field and changed no behaviour whatsoever. On a poor
@@ -380,6 +385,45 @@ add drizzle to the API.
   - Every escape path now says its piece, calls `forgetTrouble()` to reset the
     counters, and keeps listening. Without that reset the next bad result walks
     straight back into the same dead end — the loop again, one level up.
+- **Nothing used to tell the adapter a conversation was OVER, so the agent said
+  goodbye and then asked if you were still there.** Heard on a real call: at
+  ~45s it wished the caller a nice day, the line stayed open, and at ~1min the
+  reprompt ladder started. The agent's farewell was ordinary text — there were
+  five tools and none of them ended a call, and the prompt had no closing
+  guidance at all — so the silence ladder treated a completed conversation
+  exactly like an abandoned caller.
+  - `end_call` is now a tool. It sets `state.concluded` and **does not hang up**:
+    `packages/core` knows nothing about phones. The voice adapter waits
+    `farewellGraceMs` (default 2500) *after playback drains* — measured from the
+    end of the goodbye, or a long farewell eats its own courtesy window — then
+    hangs up. Chat will simply stop.
+  - **`hangUp()` bypasses the presence rule only when concluded.** The presence
+    rule answers "has this caller gone away?", and for someone who just said
+    "довидување" the answer is no, they are right there — which is exactly why
+    they should not be held on an open line. A finished conversation is not an
+    abandoned one. Everything that cannot tell those apart still goes through
+    the presence rule, and `never hangs up on a caller who is audibly present`
+    is still enforced by its own test.
+  - **Concluding must STOP the silence watch, not merely decline to restart it.**
+    `startSilenceWatch` installs a repeating interval, so the watch from the
+    previous turn keeps ticking regardless. This was the actual reprompt.
+  - **A concluded turn is exempt from the empty-reply fallback.** `end_call`
+    normally arrives beside a goodbye, but a model that calls it alone has not
+    malfunctioned — it has finished. The generic "the model said nothing at all"
+    path put a *transfer apology* in the caller's ear at the moment of hanging
+    up and recorded the call as `transferred`, the one outcome the stage metric
+    counts as NOT resolved without the owner. A cached `FAREWELL` covers the
+    silent case instead.
+  - A caller who speaks during the grace cancels the close outright; the model
+    can conclude again next turn.
+- **The voice suite is timing-dependent, and adding tests to it perturbs the
+  existing ones.** `stops talking as soon as the caller is confirmed to be
+  speaking` failed **3 runs out of 3 on an unmodified tree** — it did
+  `settle(10)` and then asserted audio was already flowing, which is a coin
+  toss against Windows' ~15ms timer tick. It now polls (`waitFor`) instead.
+  When a test here starts failing, check it against a stashed tree before
+  believing the change caused it; and keep new tests short, with every session
+  explicitly stopped, because real timers left running leak into what follows.
 - **`call ended` logs `endedBy`.** `agent` / `caller` / `carrier` / `transfer`,
   plus `callerQuietForMs`. "Did we hang up on them or did they hang up on us?"
   previously required knowing which reason strings came from which layer, and

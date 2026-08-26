@@ -25,6 +25,7 @@ import {
 import { PlaybackQueue, type PlaybackSink } from './audio.js';
 import {
   CALLBACK_OFFER,
+  FAREWELL,
   CANNOT_HEAR,
   DID_NOT_CATCH,
   FILLERS,
@@ -156,6 +157,8 @@ export class CallSession {
   private bargeInTimer: NodeJS.Timeout | undefined;
   private silencePrompts = 0;
   private busy = false;
+  /** Pending hang-up after a farewell. Cleared if the caller speaks again. */
+  private farewellTimer: NodeJS.Timeout | undefined;
   private pendingUtterance: string | undefined;
   private ended = false;
   private lowConfidenceStreak = 0;
@@ -298,6 +301,10 @@ export class CallSession {
     this.stopSilenceWatch();
     if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
     this.bargeInTimer = undefined;
+    // A pending farewell close on an already-ended call would fire into a dead
+    // session; harmless, but it keeps the process awake for no reason.
+    if (this.farewellTimer) clearTimeout(this.farewellTimer);
+    this.farewellTimer = undefined;
     this.playback.interrupt();
 
     try {
@@ -574,6 +581,8 @@ export class CallSession {
       return;
     }
     this.busy = true;
+    // A caller who speaks during the goodbye grace is not done after all.
+    this.cancelFarewellClose();
 
     /**
      * Why this turn is running.
@@ -729,6 +738,15 @@ export class CallSession {
         await this.speak(result.reply);
       }
 
+      /**
+       * A conclusion with nothing said would be a line that just goes dead,
+       * which the caller cannot tell from a dropped call. `end_call` is meant
+       * to arrive beside a goodbye and normally does; this is the floor.
+       */
+      if (this.state.concluded && spokenSentences.length === 0 && !result.reply) {
+        await this.speak(FAREWELL[this.language]);
+      }
+
       await this.persist(false);
 
       // The engine asked for a human. Its explanation is already queued, so let
@@ -755,8 +773,75 @@ export class CallSession {
         return;
       }
 
+      /**
+       * A concluded conversation gets a goodbye, not a reprompt.
+       *
+       * This line is where the bug lived: the ladder restarted after the
+       * farewell like it does after any other turn, so the agent dismissed the
+       * caller and then asked them if they were still there.
+       */
+      if (this.state.concluded) {
+        this.armFarewellClose();
+        return;
+      }
+
       this.startSilenceWatch();
     }
+  }
+
+  /**
+   * Hang up shortly after the goodbye, having given the caller room to say one
+   * back.
+   *
+   * The wait starts once playback has drained, so the grace is measured from
+   * the end of the farewell rather than the start of it — otherwise a long
+   * goodbye eats its own courtesy window and the line drops on the last word.
+   *
+   * Deliberately does NOT arm the silence watch. There is nothing left to
+   * reprompt about, and a reprompt here is precisely the failure being fixed.
+   */
+  private armFarewellClose(): void {
+    if (this.ended || this.farewellTimer) return;
+
+    /**
+     * Stop the ladder, do not merely decline to restart it.
+     *
+     * `startSilenceWatch` installs a repeating interval, so the watch running
+     * from before this turn keeps ticking on its own. Not calling it again is
+     * not the same as turning it off — and a tick that lands between the
+     * goodbye and the hang-up is exactly the "сè уште сте тука?" being fixed.
+     */
+    this.stopSilenceWatch();
+
+    void this.playback.whenDrained().then(() => {
+      if (this.ended || this.busy) return;
+      this.options.logger.info(
+        { callRef: this.options.callRef, graceMs: this.recognition.farewellGraceMs },
+        'conversation concluded — closing after the grace period',
+      );
+      this.farewellTimer = setTimeout(() => {
+        void this.hangUp('farewell', { concluded: true });
+      }, this.recognition.farewellGraceMs);
+    });
+  }
+
+  /**
+   * The caller had more to say after all.
+   *
+   * Called when a real turn starts, which includes one that began during the
+   * grace window. The model can conclude again on the next turn and the close
+   * re-arms; what must not happen is hanging up over the top of someone who
+   * has just asked another question.
+   */
+  private cancelFarewellClose(): void {
+    if (!this.farewellTimer) return;
+    clearTimeout(this.farewellTimer);
+    this.farewellTimer = undefined;
+    this.state.concluded = false;
+    this.options.logger.info(
+      { callRef: this.options.callRef },
+      'farewell cancelled — the caller resumed',
+    );
   }
 
   /**
@@ -1066,11 +1151,18 @@ export class CallSession {
    * could not understand got dropped at around ten seconds while they were
    * still talking. Now those paths say their piece and keep listening; only a
    * line with no sound at all for `abandonAfterMs` is actually ended.
+   *
+   * `concluded` is the one exception, and it is a different question entirely.
+   * The presence rule answers "has this caller gone away?" — and the honest
+   * answer for someone who just said "довидување" is no, they are right there,
+   * which is exactly why they should not be held on an open line. A finished
+   * conversation is not an abandoned one. Everything that cannot tell those
+   * apart still goes through the presence rule.
    */
-  private async hangUp(reason: string): Promise<boolean> {
+  private async hangUp(reason: string, { concluded = false } = {}): Promise<boolean> {
     const quietForMs = Date.now() - this.lastCallerSoundAt;
 
-    if (this.callerPresent || quietForMs < this.recognition.abandonAfterMs) {
+    if (!concluded && (this.callerPresent || quietForMs < this.recognition.abandonAfterMs)) {
       this.options.logger.info(
         {
           callRef: this.options.callRef,
@@ -1085,8 +1177,10 @@ export class CallSession {
     }
 
     this.options.logger.warn(
-      { callRef: this.options.callRef, reason, quietForMs, endedBy: 'agent' },
-      'hanging up — our decision, the line has been silent',
+      { callRef: this.options.callRef, reason, quietForMs, concluded, endedBy: 'agent' },
+      concluded
+        ? 'hanging up — the conversation concluded'
+        : 'hanging up — our decision, the line has been silent',
     );
     await this.playback.whenDrained();
     await this.stop(reason);

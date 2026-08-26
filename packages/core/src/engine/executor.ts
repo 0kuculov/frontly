@@ -76,6 +76,8 @@ export async function executeTool(
         return await runRescheduleAppointment(rawInput, ctx);
       case 'transfer_to_human':
         return runTransferToHuman(rawInput, ctx);
+      case 'end_call':
+        return runEndCall(ctx);
       default:
         return fail('unknown_tool', `No such tool: ${name}`);
     }
@@ -339,6 +341,39 @@ function runTransferToHuman(rawInput: unknown, ctx: TurnContext): ToolExecutionR
 }
 
 // --- helpers -----------------------------------------------------------------
+
+// --- end_call ----------------------------------------------------------------
+
+/**
+ * The caller's business is finished and the goodbyes have been said.
+ *
+ * This exists because nothing else could tell the adapter a conversation was
+ * OVER. The agent would say "пријатен ден" as ordinary text, the session had
+ * no idea anything had concluded, and the silence ladder then reprompted a
+ * caller who had already been shown the door — farewell, dead air, then
+ * "сè уште сте тука?". Heard on a real call.
+ *
+ * Note it does NOT hang up here: `packages/core` knows nothing about phones.
+ * It records that the conversation reached its end, and the channel adapter
+ * decides what that means — a voice call hangs up after a grace period, chat
+ * simply stops.
+ */
+function runEndCall(ctx: TurnContext): ToolExecutionResult {
+  ctx.state.concluded = true;
+  /**
+   * Only when nothing more specific happened.
+   *
+   * A booking, a cancellation or a reschedule has already set its own outcome
+   * and that is the interesting one; `info` is what is left when the agent
+   * simply answered a question — which is still resolved without the owner.
+   */
+  ctx.state.outcome ??= 'info';
+
+  return {
+    isError: false,
+    output: { ended: true },
+  };
+}
 
 function fail(code: string, message: string, details?: Record<string, unknown>): ToolExecutionResult {
   return { isError: true, output: { error: code, message, ...(details ? { details } : {}) } };

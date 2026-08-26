@@ -29,7 +29,7 @@ import {
 } from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
-import { CANNOT_HEAR, DID_NOT_CATCH, FILLERS, REPROMPTS } from './phrases.js';
+import { CANNOT_HEAR, DID_NOT_CATCH, FAREWELL, FILLERS, REPROMPTS } from './phrases.js';
 import { phraseRequest, SpeechCache } from './speech-cache.js';
 import { decodeClientState, encodeClientState, TelnyxProvider, telnyxMediaProtocol } from './telnyx.js';
 import { warmBusiness, warmRequests } from './warm.js';
@@ -202,6 +202,23 @@ function makeSession(
 
 const settle = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Wait for a condition instead of guessing how long it takes.
+ *
+ * `settle(10)` then asserting is a coin toss on Windows, where setTimeout's
+ * floor is the ~15ms system timer tick: the greeting's first frame lands
+ * after the check about as often as before it, and the test fails on a
+ * machine where nothing has raised the timer resolution. Polling asserts the
+ * same thing without pinning it to a clock this suite does not control.
+ */
+async function waitFor(condition: () => boolean, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('waitFor timed out');
+    await settle(5);
+  }
+}
+
 /** Recognition tuning for a test, over the shared defaults. */
 function bargeIn(overrides: Partial<RecognitionConfig>): RecognitionConfig {
   return { ...DEFAULT_RECOGNITION_CONFIG, ...overrides };
@@ -331,8 +348,9 @@ describe('a call', () => {
     // Deliberately not awaited — barge-in happens mid-playback, which is the
     // whole point.
     const started = h.session.start();
-    await settle(10);
-    expect(h.frames.length).toBeGreaterThan(0); // audio is flowing
+    // Audio is flowing. Polled rather than timed: the subject of this test is
+    // barge-in, not how quickly the greeting starts.
+    await waitFor(() => h.frames.length > 0);
 
     // Energy alone only arms it: this could still be a cough.
     h.provider.stt!.handlers.onSpeechStarted?.();
@@ -538,24 +556,154 @@ describe('a call', () => {
 });
 
 
+// --- concluding ---------------------------------------------------------------
+
+describe('concluding the call', () => {
+  /**
+   * The bug this covers, seen on a real call: at ~45s the agent said goodbye
+   * and wished the caller a nice day, the line stayed open, and at ~1min it
+   * started the reprompt ladder — "сè уште сте тука?" at someone it had just
+   * dismissed. Nothing marked a conversation as OVER, so the silence ladder
+   * treated a completed farewell exactly like an abandoned caller.
+   *
+   * Two habits here are deliberate, and this suite punishes their absence:
+   * every test sets `silenceMs` well clear of its own duration (the harness
+   * default is 40ms, which reaches the callback-then-hang-up rung on its own
+   * and makes `hangUps === 1` pass whether or not the farewell works), and
+   * every session is stopped. Timers left running on real clocks leak into
+   * the tests that follow.
+   */
+  const endedByFarewell = (h: Harness) =>
+    h.logs.some((l) => l.message === 'hanging up — the conversation concluded');
+
+  const saidGoodbye = () =>
+    new ScriptedLanguageModel([
+      scriptedToolUse([{ name: 'end_call', input: {} }], 'Пријатен ден и пријатно.'),
+    ]);
+
+  it('hangs up after the grace period even though the caller is present', async () => {
+    const h = makeSession(saidGoodbye(), {
+      silenceMs: 2000,
+      recognition: bargeIn({ farewellGraceMs: 20 }),
+    });
+    await h.session.start();
+
+    h.provider.stt!.say('Одлично, тоа е сè. Благодарам.', 0.94, 'mk');
+    await settle(120);
+
+    /**
+     * The caller spoke moments ago, so `callerPresent` is true and the
+     * presence rule — correctly — would refuse. A concluded conversation is
+     * not an abandoned caller, and that is the whole distinction.
+     */
+    expect(endedByFarewell(h)).toBe(true);
+    expect(h.hangUps).toBe(1);
+    await h.session.stop('test');
+  });
+
+  it('never reprompts after a farewell', async () => {
+    // Ladder every 30ms, goodbye grace far longer: if the watch were merely
+    // left un-restarted rather than stopped, this window fits several ticks.
+    const h = makeSession(saidGoodbye(), {
+      silenceMs: 30,
+      recognition: bargeIn({ farewellGraceMs: 250 }),
+    });
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('Тоа е сè, благодарам.', 0.94, 'mk');
+    await settle(150);
+
+    const said = h.provider.tts.spoken.map((t) => t.text);
+    for (const reprompt of REPROMPTS.mk) expect(said).not.toContain(reprompt);
+    expect(h.hangUps).toBe(0); // still inside the grace
+    await h.session.stop('test');
+  });
+
+  it('keeps the line when the caller speaks during the grace', async () => {
+    const h = makeSession(
+      new ScriptedLanguageModel([
+        scriptedToolUse([{ name: 'end_call', input: {} }], 'Пријатен ден.'),
+        scriptedText('Се разбира, слушам.'),
+      ]),
+      { silenceMs: 2000, recognition: bargeIn({ farewellGraceMs: 150 }) },
+    );
+    await h.session.start();
+
+    h.provider.stt!.say('Тоа е сè.', 0.94, 'mk');
+    await settle(50);
+    // "Actually, one more thing" — the goodbye was premature.
+    h.provider.stt!.say('Извинете, уште едно прашање.', 0.94, 'mk');
+    await settle(200);
+
+    // Hanging up over the top of someone asking another question is the one
+    // thing worse than the bug being fixed.
+    expect(h.hangUps).toBe(0);
+    expect(h.provider.tts.spoken.map((t) => t.text)).toContain('Се разбира, слушам.');
+    await h.session.stop('test');
+  });
+
+  it('says a cached goodbye when the model concludes without speaking', async () => {
+    const h = makeSession(
+      new ScriptedLanguageModel([scriptedToolUse([{ name: 'end_call', input: {} }])]),
+      { silenceMs: 2000, recognition: bargeIn({ farewellGraceMs: 20 }) },
+    );
+    await h.session.start();
+    h.provider.tts.spoken.length = 0;
+
+    h.provider.stt!.say('Тоа е сè.', 0.94, 'mk');
+    await settle(120);
+
+    // Otherwise the line simply goes dead, which the caller cannot tell from
+    // a dropped call.
+    expect(h.provider.tts.spoken.map((t) => t.text)).toContain(FAREWELL.mk);
+    expect(endedByFarewell(h)).toBe(true);
+    await h.session.stop('test');
+  });
+
+  it('still refuses to hang up on a caller who merely went quiet', async () => {
+    // The presence rule must survive this change: only a CONCLUDED
+    // conversation may end while the caller is audibly there.
+    const h = makeSession(new ScriptedLanguageModel([]), { silenceMs: 30 });
+    await h.session.start();
+    h.provider.stt!.say('Ало?', 0.94, 'mk');
+    await settle(200);
+
+    expect(h.hangUps).toBe(0);
+    await h.session.stop('test');
+  });
+});
+
 // --- transfer ----------------------------------------------------------------
 
 describe('transfer to a human', () => {
   it('waits for the explanation to finish, then hands the call over', async () => {
     const handed: string[] = [];
+    /**
+     * The route is set here rather than taken from the seed.
+     *
+     * The seed's ownerMobile is NULL on purpose — a plausible Macedonian
+     * number sitting in demo data is one formatting fix away from being
+     * dialled on stage — so a test that read it would be asserting against
+     * demo data instead of against this behaviour.
+     */
+    const owner = '+38970260100';
     const h = makeSession(
       new ScriptedLanguageModel([
         scriptedToolUse([{ name: 'transfer_to_human', input: { reason: 'medical question' } }]),
         scriptedText('Ве поврзувам со колега.'),
       ]),
-      { onTransfer: async (to) => void handed.push(to) },
+      {
+        business: { ...context.business, ownerMobile: owner },
+        onTransfer: async (to) => void handed.push(to),
+      },
     );
 
     await h.session.start();
     h.provider.stt!.say('Дали смее да се вади заб во бременост?', 0.93, 'mk');
     await settle(120);
 
-    expect(handed).toEqual([context.business.ownerMobile]);
+    expect(handed).toEqual([owner]);
     // The carrier owns the call after a transfer; hanging up would drop it.
     expect(h.hangUps).toBe(0);
     expect((await findConversation(h.callRef))!.outcome).toBe('transferred');

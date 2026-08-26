@@ -30,7 +30,7 @@ import {
  *   pnpm --filter @frontly/api tune:speech --barge-in 500 --barge-in-chars 3
  *   pnpm --filter @frontly/api tune:speech --strategy Semantic
  *   pnpm --filter @frontly/api tune:speech --reprompt-after 6000
- *   pnpm --filter @frontly/api tune:speech --phrase-weight 1.0   # OFF by default: measured harmful, see sweep:phrases
+ *   pnpm --filter @frontly/api tune:speech --phrase-weight 0     # only 0 is accepted; see sweep:phrases
  *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
  *   pnpm --filter @frontly/api tune:speech --silent-low-confidence 1
  *   pnpm --filter @frontly/api tune:speech --low-confidence-hold 2000
@@ -51,7 +51,58 @@ function flag(name: string): string | undefined {
 const bold = (t: string) => `[1m${t}[0m`;
 const dim = (t: string) => `[2m${t}[0m`;
 
+/**
+ * Only 0 is accepted here, and that is the whole point.
+ *
+ * This flag wrote a measured-harmful setting straight to the live business
+ * row — no deploy, no build, no test failure — and the next real call picked
+ * it up. The phrase list does not degrade recognition, it TRUNCATES it: the
+ * greeting came back as "Добар ден." at confidence 0.19 against 0.83, and a
+ * booking sentence was cut in half while still scoring 0.87, so no confidence
+ * threshold catches it.
+ *
+ * Re-measuring is a real need and it has its own script, which sets the weight
+ * itself against scratch audio and touches no business row:
+ * `pnpm --filter @frontly/api sweep:phrases`. So there is nothing left for
+ * this flag to do except break production quietly.
+ *
+ * 0 still works, so a row that somehow acquired a weight can be zeroed without
+ * `--reset` flattening every other tuned value beside it.
+ *
+ * Runs before the database is opened: a refused flag must not have reached a
+ * live row on its way to being refused.
+ */
+function refusePhraseWeight(): void {
+  const raw = flag('phrase-weight');
+  if (raw === undefined) return;
+
+  const weight = Number(raw);
+  if (Number.isFinite(weight) && weight <= 0) return;
+
+  console.error(`
+  Refusing to set phraseListWeight=${raw}.
+
+  The Azure phrase list was measured on this account, in mk-MK, over 8kHz
+  telephony audio, and it TRUNCATED recognition at the first list entry it
+  matched — confidence 0.19 against 0.83, on a sentence it cut in half.
+  No weight ever beat the baseline: the best any configuration managed was
+  +0.00. The weight itself is inert (0.5/1.0/1.5/2.0 gave byte-identical
+  output), so there is no value to tune to.
+
+  This flag writes to the live business row and the next real call picks it
+  up, with nothing failing in between.
+
+  To re-measure (sq-AL, en-US, a new SDK), use the script that sets the
+  weight on scratch audio and writes to no business row:
+      pnpm --filter @frontly/api sweep:phrases
+`);
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
+  // Before the database is opened, so a refused flag cannot touch a live row.
+  refusePhraseWeight();
+
   const url = process.env.DATABASE_URL;
   if (!url) {
     console.error('DATABASE_URL is not set.');

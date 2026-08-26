@@ -87,14 +87,38 @@ export async function seedDemoBusiness(db: Database, options: SeedOptions = {}):
     // drops the configured 300ms pause between them.
     greetingTemplate:
       'Добар ден, се јавивте во {{business_name}}. Како можам да ви помогнам?',
-    ownerMobile: '+389 70 260 100',
+    /**
+     * NULL, deliberately.
+     *
+     * This used to hold a plausible Macedonian mobile, and the connection now
+     * HAS an outbound voice profile — so `transfer_to_human` is one formatting
+     * fix away from placing a real outbound call to a number that may belong
+     * to a stranger, live on stage. (It survives today only because the
+     * seeded value carried spaces and Telnyx rejects a non-E.164 destination.)
+     *
+     * With no route, `handOver()` says it cannot transfer and keeps listening,
+     * which is a correct, safe demo. Put a real number in by hand to
+     * demonstrate a transfer; the update set below leaves it alone.
+     */
+    ownerMobile: null,
     brandColor: '#0E7490',
     voiceConfig: DEFAULT_VOICE_CONFIG,
   };
 
-  // inboundNumber is deliberately left out of the update set: Phase 3 assigns a
-  // real number and re-seeding must not wipe it.
-  const { id: _businessId, inboundNumber: _inboundNumber, ...businessUpdates } = businessValues;
+  /**
+   * inboundNumber and ownerMobile are deliberately left out of the update set.
+   *
+   * Both are filled in from outside the seed — Phase 3 assigns a real inbound
+   * number, and the owner pastes their own mobile in to demo a transfer — so
+   * re-seeding (which `/demo/reset` does on every press) must not wipe either.
+   * Everything else here is the seed's to own.
+   */
+  const {
+    id: _businessId,
+    inboundNumber: _inboundNumber,
+    ownerMobile: _ownerMobile,
+    ...businessUpdates
+  } = businessValues;
 
   await db
     .insert(businesses)

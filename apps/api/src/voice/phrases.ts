@@ -86,6 +86,22 @@ export const CALLBACK_OFFER: Record<Language, string> = {
 };
 
 /**
+ * Spoken only when the model concluded the call but said nothing to conclude
+ * it with.
+ *
+ * `end_call` is meant to arrive alongside a goodbye in the same message, and
+ * normally does. If it ever arrives alone, the caller would otherwise hear the
+ * line simply go dead — which is indistinguishable from a dropped call, and on
+ * stage would read as a crash. Cached, so it costs ~35ms rather than a round
+ * trip to Azure at the one moment nobody is willing to wait.
+ */
+export const FAREWELL: Record<Language, string> = {
+  mk: 'Ви благодарам што се јавивте. Пријатен ден.',
+  sq: 'Faleminderit që telefonuat. Ditë të mbarë.',
+  en: 'Thank you for calling. Have a good day.',
+};
+
+/**
  * Played when a turn is taking long enough that the line would otherwise go
  * quiet, while the real answer is still generating.
  *
@@ -110,6 +126,7 @@ export function cacheablePhrases(language: Language): string[] {
     ...REPROMPTS[language],
     TRANSFER_UNAVAILABLE[language],
     CALLBACK_OFFER[language],
+    FAREWELL[language],
     ...FILLERS[language],
   ];
 }

@@ -97,8 +97,16 @@ async function deliver(
         providerId: outcome.providerId,
         encoding: cost.encoding,
         parts: cost.parts,
+        ...(outcome.sentFrom ? { sentFrom: outcome.sentFrom } : {}),
       },
-      'follow-up sent',
+      /**
+       * A substitution is still a delivery. Telnyx may swap an alphanumeric
+       * sender for a generic one to get the message through on some networks,
+       * so this is said out loud rather than treated as a fault — but it IS
+       * said, because a text arriving from a short code instead of FRONTLY
+       * looks like a different product to the person holding the phone.
+       */
+      outcome.senderSubstituted ? 'follow-up sent (carrier substituted the sender)' : 'follow-up sent',
     );
   } catch (error) {
     result.failed++;
@@ -252,8 +260,15 @@ export async function sendDailySummaries(
       }
       result.sent++;
       deps.logger.info(
-        { business: business.id, providerId: outcome.providerId, ...cost },
-        'daily summary sent',
+        {
+          business: business.id,
+          providerId: outcome.providerId,
+          ...cost,
+          ...(outcome.sentFrom ? { sentFrom: outcome.sentFrom } : {}),
+        },
+        outcome.senderSubstituted
+          ? 'daily summary sent (carrier substituted the sender)'
+          : 'daily summary sent',
       );
     } catch (error) {
       result.failed++;

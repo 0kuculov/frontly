@@ -12,7 +12,23 @@ import { undeliverableReason } from '@frontly/shared';
  */
 
 export type SmsOutcome =
-  | { status: 'sent'; providerId: string }
+  | {
+      status: 'sent';
+      providerId: string;
+      /**
+       * What the message was ACTUALLY sent from, which is not always what we
+       * asked for.
+       *
+       * Telnyx warned that an alphanumeric sender may be swapped for a generic
+       * one to get a message delivered in some networks. That is a successful
+       * delivery, not a failure — but it is worth seeing in a log, because a
+       * message arriving from a short code instead of FRONTLY looks like a
+       * different product to the person receiving it.
+       */
+      sentFrom?: string | undefined;
+      /** True when the carrier substituted the sender we asked for. */
+      senderSubstituted?: boolean | undefined;
+    }
   /**
    * The carrier will not carry it, and no retry will change that — a US long
    * code aimed at a +389 handset, for instance. Distinct from a thrown error
@@ -99,9 +115,35 @@ export class TelnyxSmsProvider implements ISmsProvider {
       throw new Error(`telnyx send failed (HTTP ${response.status}): ${describe(body)}`);
     }
 
-    const body = (await response.json().catch(() => ({}))) as { data?: { id?: unknown } };
+    const body = (await response.json().catch(() => ({}))) as {
+      data?: { id?: unknown; from?: unknown };
+    };
     const providerId = typeof body.data?.id === 'string' ? body.data.id : 'unknown';
-    return { status: 'sent', providerId };
+
+    /**
+     * Read back who it actually went out as.
+     *
+     * `from` comes back as an object on Telnyx messages; older shapes send a
+     * bare string. Both are accepted rather than guessing, because guessing
+     * wrong here would report every successful send as a substitution.
+     */
+    const fromField = body.data?.from;
+    const sentFrom =
+      typeof fromField === 'string'
+        ? fromField
+        : typeof (fromField as { phone_number?: unknown } | undefined)?.phone_number === 'string'
+          ? ((fromField as { phone_number: string }).phone_number)
+          : undefined;
+
+    // A substitution is a DELIVERED message. Never an error, never a retry.
+    const senderSubstituted = Boolean(sentFrom && sentFrom !== sender.from);
+
+    return {
+      status: 'sent',
+      providerId,
+      ...(sentFrom ? { sentFrom } : {}),
+      ...(senderSubstituted ? { senderSubstituted } : {}),
+    };
   }
 }
 

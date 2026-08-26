@@ -58,6 +58,59 @@ Beyond `.env`, a sync client racing a build over `node_modules/`, `dist/` and
 `.next/` corrupts state in ways that look like compiler bugs. Keep the repo on
 a plain local path.
 
+### The second wipe (26 Aug 2026) was NOT OneDrive, and not git either
+
+Investigated rather than assumed, because the obvious culprit had already been
+removed. What was ruled out, with evidence:
+
+- **OneDrive.** No sync process runs against this path, and `C:\dev` is a plain
+  directory with no reparse point or junction. The repo really is local.
+- **`git stash push --include-untracked` (`-u`).** Verified in a throwaway
+  repo: it stashes untracked files and **leaves ignored files alone**, and
+  `.env` is ignored. The file survived intact. This is safe to use.
+- **`git add -A` / commit.** `.env` is ignored (`.gitignore:13`) and is not
+  tracked, so it was never staged — and has never been committed.
+
+Two commands **do** destroy it, both verified the same way, and both used to
+sail past the guard:
+
+- **`git clean` with `-x`** — `-x` means "including ignored files". File GONE.
+- **`git stash push --all` (`-a`)** — `-a` stashes ignored files too. File GONE.
+
+The root cause of this particular wipe could not be identified from the
+evidence available; no audit trail exists. Do not invent one. What changed is
+that every path Claude could take is now closed, and a wipe is now detectable
+in seconds instead of at the next deploy.
+
+**The signature to recognise:** the restored file had every variable present
+and `DATABASE_URL` silently back to `file:./frontly.db` instead of the Turso
+URL. Key-presence checks do not catch that. Fingerprints do — which is why
+`pnpm env:check` prints a hash prefix per value rather than just a tick.
+
+### What now guards it
+
+- **`pnpm env:check`** — read-only. Reports byte count, variable count, and an
+  8-char SHA-256 prefix per value (never the value). Run it after anything
+  suspicious and compare fingerprints; a stale restore shows up as a changed
+  hash on a variable nobody edited. It refuses to repair anything, by design.
+- **`.claude/settings.json` matcher is `Bash|PowerShell`.** It used to be
+  `Bash` alone, which meant every rule in the hook was unreachable from the
+  PowerShell tool no matter how good the pattern was. A guard that cannot fire
+  is not a guard — the same lesson as the jq version, and as the confidence
+  score that was always 1.0.
+- **The hook now also denies `git clean -x` and `git stash --all`**, and
+  reads the command from several possible field names so a third shell tool
+  cannot reopen the hole. `git stash -u` is deliberately still allowed:
+  blocking it would be superstition, since it provably does not touch ignored
+  files.
+- **Read-only (`attrib +R`) is a PARTIAL defence, not a fix.** Measured:
+  it blocks a `>` redirect (Permission denied) and a PowerShell overwrite
+  (UnauthorizedAccessException); it does **not** stop either git command above,
+  both of which deleted the file anyway. Worth setting, never worth trusting.
+- The only thing that makes recovery instant is a copy of `.env` **outside the
+  repo**, which duplicates live credentials and is therefore the owner's call,
+  not ours to create.
+
 ## `.env` is the owner's file. Never write to it.
 
 **Do not write, overwrite, regenerate, `cp .env.example .env`, `sed -i`, or
@@ -233,13 +286,21 @@ add drizzle to the API.
     fires.** The agent says it did not catch you rather than acting on
     garbage: embarrassing, not dangerous. Nothing gets booked off a mistrans-
     lation.
-  - **`Continuous` scored 4/4 and is still not shipped** (owner's call, 26 Aug).
+  - **`Continuous` scored 4/4 and is deliberately NOT shipped — this is a
+    known post-demo upgrade, already decided (owner, 26 Aug 2026). Do not
+    re-derive it, and do not switch it on before 10 September.**
     The measurement cannot see the thing that makes it risky: these clips are
     clean TTS separated by 3s of digital silence, so nothing here tests a flip
-    *mid-sentence* on a noisy 8kHz line. Simulated audio has already misled
-    this project twice on timing; treat a clean 4/4 as "worth a real call",
-    not as "safe to ship". `languageIdMode` on `SpeechToTextOptions` exists
-    only so the script can measure it — production never sets it.
+    *mid-sentence* on a noisy 8kHz line. An agent that changes language partway
+    through a sentence on stage is worse than one that is consistently in the
+    wrong language. Simulated audio has already misled this project twice on
+    timing; treat a clean 4/4 as "worth a real call", not "safe to ship".
+    `languageIdMode` on `SpeechToTextOptions` exists only so the script can
+    measure it — production never sets it, and the one-line change to adopt it
+    is `azure.ts`'s `SpeechServiceConnection_LanguageIdMode`.
+    **To revisit after the demo:** place a real call, greet in one language,
+    switch mid-call, and compare against this table. That is the only evidence
+    that would justify the change.
 - **Time-to-first-token dominates voice latency**, not sentence length. Measured
   on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
   fix a slow first token — only a faster model, a shorter system prompt, or a

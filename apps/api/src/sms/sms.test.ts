@@ -309,6 +309,43 @@ describe('the telnyx client', () => {
     expect(called).toBe(false);
   });
 
+  it('treats a carrier-substituted sender as a delivery, not a failure', async () => {
+    const provider = new TelnyxSmsProvider({
+      apiKey: 'KEY',
+      sender: { from: 'FRONTLY', messagingProfileId: 'mp_1', alphanumeric: true },
+      fetchImpl: (async () => ({
+        ok: true,
+        // Telnyx warned the alpha sender may be swapped for a generic one to
+        // get the message delivered on some networks.
+        json: async () => ({ data: { id: 'msg_7', from: { phone_number: '+38975000111' } } }),
+      })) as unknown as typeof fetch,
+    });
+
+    const outcome = await provider.send({ to: '+38970123456', text: 'здраво' });
+    // Delivered. Anything that retried or errored here would send the patient
+    // a second copy of a message they already have.
+    expect(outcome.status).toBe('sent');
+    if (outcome.status === 'sent') {
+      expect(outcome.senderSubstituted).toBe(true);
+      expect(outcome.sentFrom).toBe('+38975000111');
+    }
+  });
+
+  it('does not call it a substitution when the sender came back unchanged', async () => {
+    const provider = new TelnyxSmsProvider({
+      apiKey: 'KEY',
+      sender: { from: 'FRONTLY', messagingProfileId: 'mp_1', alphanumeric: true },
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => ({ data: { id: 'msg_8', from: { phone_number: 'FRONTLY' } } }),
+      })) as unknown as typeof fetch,
+    });
+
+    const outcome = await provider.send({ to: '+38970123456', text: 'здраво' });
+    expect(outcome.status).toBe('sent');
+    if (outcome.status === 'sent') expect(outcome.senderSubstituted).toBeUndefined();
+  });
+
   it('treats a rejected sender as undeliverable rather than retryable', async () => {
     const provider = new TelnyxSmsProvider({
       apiKey: 'KEY',

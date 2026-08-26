@@ -404,14 +404,14 @@ describe('speech safety', () => {
     // Observed on a real call: bullets and bold in a spoken reply. Azure would
     // read the asterisks aloud.
     const raw = 'Значи закажувам:\n- **Стоматолошки преглед**\n- *Утре во десет*\n\nДали потврдувате?';
-    expect(sanitizeForSpeech(raw)).toBe(
+    expect(sanitizeForSpeech(raw, { language: 'mk' })).toBe(
       'Значи закажувам: Стоматолошки преглед Утре во десет Дали потврдувате?',
     );
   });
 
   it('leaves ordinary Macedonian untouched', () => {
     const plain = 'Слободно е утре во десет и половина наутро. Да го закажам?';
-    expect(sanitizeForSpeech(plain)).toBe(plain);
+    expect(sanitizeForSpeech(plain, { language: 'mk' })).toBe(plain);
   });
 
   it('converts a Latin leak and reports it, without touching proper nouns', async () => {

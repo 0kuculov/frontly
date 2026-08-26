@@ -47,7 +47,20 @@ export interface LatinLeak {
 }
 
 export interface SanitizeOptions {
-  language?: Language;
+  /**
+   * REQUIRED, and deliberately not defaulted.
+   *
+   * The Latin->Cyrillic pass only runs for `mk`, which is the only thing
+   * keeping it away from Albanian — and the allowlist's single entry, `ime`,
+   * is a real Albanian word ("my"). A forgotten language used to default to
+   * `mk`, so an Albanian reply that mentioned the clinic by its Cyrillic name
+   * would have had `ime` rewritten to `име` and read aloud in Cyrillic by an
+   * Albanian voice. Measured, not theorised.
+   *
+   * Making it required means the next channel adapter cannot reintroduce that
+   * by omission.
+   */
+  language: Language;
   /**
    * Proper nouns that must survive untouched — business name, staff names,
    * service names. Passed as whole strings; matching is per word.
@@ -57,10 +70,10 @@ export interface SanitizeOptions {
   onLatinLeak?: (leak: LatinLeak) => void;
 }
 
-export function sanitizeForSpeech(text: string, options: SanitizeOptions = {}): string {
+export function sanitizeForSpeech(text: string, options: SanitizeOptions): string {
   // Only Macedonian replies get the script pass. An English or Albanian reply
   // is Latin by definition.
-  const language = options.language ?? 'mk';
+  const language = options.language;
 
   /**
    * Dates before markdown, deliberately.

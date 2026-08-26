@@ -568,6 +568,52 @@ add drizzle to the API.
   Moving numbers next to a blank transcript is that misconfiguration, not a
   broken stream.
 
+### Albanian: usable, NOT equal to Macedonian (measured 26 Aug 2026)
+
+`pnpm --filter @frontly/api verify:albanian` re-measures all of this. Mean word
+accuracy **83%**, language detection **3/3**, generated date/time phrasing
+**100%**. Two findings matter more than those numbers:
+
+- **The confidence score is INERT for sq-AL.** Every utterance came back at
+  exactly **0.79** — spread across six real utterances: **0.00** — and
+  Macedonian audio fed into an sq-AL recogniser, transcribed as obvious
+  nonsense ("Do bardem sa kam dhe zakonshëm stomatolog shkipe get."), **also
+  scored 0.79**. Macedonian by contrast ranges 0.19–0.88.
+  - Consequence: `minConfidence`, `silentLowConfidenceTurns`,
+    `maxLowConfidenceTurns` and the whole apology ladder **cannot fire in
+    Albanian**. The agent will act on a mistranscription instead of admitting
+    it did not catch it. This is the same class as "Azure returns 1.0 unless
+    OutputFormat.Detailed is set" — a defence that cannot fire is not a
+    defence — except here the constant is 0.79 and `Detailed` IS set.
+  - Do NOT tune `--min-confidence` to fix this. There is no value that
+    separates good Albanian from garbage, because they score identically.
+- **Data capture is the weak point, and it is the core flow.** Proper nouns and
+  digits degrade: "Dental Ohrid" → "dental Ohri", "Petrovski" → "petrovci",
+  and a dictated phone number "shtatë zero një dy tre" came back
+  "7. 0 1 2 3." — 57% word accuracy, the worst line in the run. Conversational
+  Albanian scores 75–100%; it is names and numbers that fall over, which is
+  exactly what a booking needs.
+
+Fixed as a result of that run:
+
+- **`sqTime` had no part-of-day marker.** A 14:30 slot was spoken
+  "në orën 2 e gjysmë" with nothing to say whether that meant 2am or 2pm,
+  while Macedonian has carried "попладне" all along. Now
+  "në orën 2 e gjysmë pasdite", verified back through real TTS/STT at 100%.
+- **`sanitizeForSpeech`'s `language` is now REQUIRED.** The Latin→Cyrillic pass
+  only runs for `mk`, which is the only thing keeping it off Albanian — and the
+  allowlist's single entry, `ime`, is an ordinary Albanian word ("my").
+  Measured: with the language omitted (it defaulted to `mk`), an Albanian reply
+  mentioning the clinic by its Cyrillic name had `ime` rewritten to `име` and
+  would have been read aloud in Cyrillic by an Albanian voice. The engine
+  always passed it, so this was latent — but Phase 5 adds a second adapter, and
+  a required field cannot be forgotten.
+
+**What the phrasing tables still lack:** a native speaker's ear. Every string
+round-trips intact and the shapes are right; that is not the same as sounding
+natural to someone from Tetovo. Worth 20 minutes with an Albanian speaker
+before claiming it on stage.
+
 ### The dashboard (Phase 4)
 
 - **The dashboard is a CLIENT of the API, not a second copy of it.** That

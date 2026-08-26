@@ -122,9 +122,12 @@ function mkTime(hour24: number, minute: number): string {
 }
 
 // --- Albanian ----------------------------------------------------------------
-// Provisional. Phase 8 verifies this against real sq-AL speech and tunes the
-// phrasing; the shapes are right but the register has not been checked by a
-// native speaker.
+// Verified against real sq-AL speech on 26 Aug 2026 with `verify:albanian`:
+// every generated date/time phrase round-tripped at 100% word accuracy on
+// realistic slot times (:00 and :30). The part-of-day suffix below was added
+// as a result of that run. The register has still not been reviewed by a
+// native speaker — the shapes are right and the words come back intact, which
+// is not the same as sounding natural to someone from Tetovo.
 
 const SQ_WEEKDAYS = [
   'të dielën',
@@ -151,11 +154,28 @@ const SQ_MONTHS = [
   'dhjetor',
 ] as const;
 
+/**
+ * Morning / afternoon / evening, the same job `mkPartOfDay` does.
+ *
+ * Measured need, not symmetry for its own sake: `verify:albanian` showed a
+ * 14:30 slot spoken as "në orën 2 e gjysmë", with nothing to say whether that
+ * is 2am or 2pm, while the Macedonian equivalent has always carried
+ * "попладне". Clinic hours make it inferable and a confirmation of an
+ * appointment is exactly the wrong place to make someone infer.
+ */
+function sqPartOfDay(hour24: number): string {
+  if (hour24 < 12) return 'në mëngjes';
+  if (hour24 < 18) return 'pasdite';
+  return 'në mbrëmje';
+}
+
 function sqTime(hour24: number, minute: number): string {
   const h = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  if (minute === 0) return `në orën ${h}`;
-  if (minute === 30) return `në orën ${h} e gjysmë`;
-  return `në orën ${h} e ${minute}`;
+  const suffix = sqPartOfDay(hour24);
+
+  if (minute === 0) return `në orën ${h} ${suffix}`;
+  if (minute === 30) return `në orën ${h} e gjysmë ${suffix}`;
+  return `në orën ${h} e ${minute} ${suffix}`;
 }
 
 // --- English -----------------------------------------------------------------
@@ -335,7 +355,18 @@ export function calendarVocabulary(language: Language): string[] {
         'следната недела',
       ];
     case 'sq':
-      return [...SQ_WEEKDAYS, ...SQ_MONTHS, 'sot', 'nesër', 'pasnesër', 'e gjysmë', 'në orën'];
+      return [
+        ...SQ_WEEKDAYS,
+        ...SQ_MONTHS,
+        'sot',
+        'nesër',
+        'pasnesër',
+        'e gjysmë',
+        'në orën',
+        'në mëngjes',
+        'pasdite',
+        'në mbrëmje',
+      ];
     case 'en':
       return [...EN_WEEKDAYS, ...EN_MONTHS, 'today', 'tomorrow', 'half past', 'quarter past'];
   }

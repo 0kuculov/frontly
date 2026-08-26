@@ -8,14 +8,14 @@ import {
 describe('markdown stripping', () => {
   it('strips the bullets and bold a model reaches for when listing options', () => {
     const raw = 'Значи закажувам:\n- **Стоматолошки преглед**\n- *Утре во десет*\n\nДали потврдувате?';
-    expect(sanitizeForSpeech(raw)).toBe(
+    expect(sanitizeForSpeech(raw, { language: 'mk' })).toBe(
       'Значи закажувам: Стоматолошки преглед Утре во десет Дали потврдувате?',
     );
   });
 
   it('leaves ordinary Macedonian untouched', () => {
     const plain = 'Слободно е утре во десет и половина наутро. Да го закажам?';
-    expect(sanitizeForSpeech(plain)).toBe(plain);
+    expect(sanitizeForSpeech(plain, { language: 'mk' })).toBe(plain);
   });
 });
 
@@ -83,6 +83,40 @@ describe('Latin script inside Macedonian', () => {
     expect(sanitizeForSpeech(english, { language: 'en' })).toBe(english);
 
     const albanian = 'Termini u rezervua për nesër në orën dhjetë e gjysmë.';
+    expect(sanitizeForSpeech(albanian, { language: 'sq' })).toBe(albanian);
+  });
+
+  /**
+   * The specific collision, because `ime` is not only a Macedonian leak — it
+   * is an ordinary Albanian word meaning "my".
+   *
+   * The only thing keeping the transliteration away from it is the `mk` gate,
+   * and an Albanian reply DOES contain Cyrillic in practice: the clinic is
+   * called Дентал Охрид, so the `CYRILLIC.test` short-circuit does not save
+   * it either. Measured before this test existed: with the language omitted,
+   * "është ime" came back "është име" and would have been read aloud in
+   * Cyrillic by an Albanian voice.
+   */
+  it('never transliterates an Albanian word that collides with the allowlist', () => {
+    const albanian = 'Termini imë te Дентал Охрид është ime, në orën dhjetë.';
+    expect(sanitizeForSpeech(albanian, { language: 'sq' })).toBe(albanian);
+    expect(sanitizeForSpeech(albanian, { language: 'sq' })).toContain('ime');
+    expect(sanitizeForSpeech(albanian, { language: 'sq' })).not.toContain('име');
+  });
+
+  it('leaves Albanian diacritics untouched', () => {
+    // ë and ç are outside IS_LATIN_WORD's A-Za-z, so a word containing them
+    // would not even be seen as a Latin token. Pinned so a "helpful" widening
+    // of that pattern has to break a test first.
+    const albanian = 'Mirë se erdhët. Çfarë dite ju përshtatet, të mërkurën apo të enjten?';
+    expect(sanitizeForSpeech(albanian, { language: 'sq' })).toBe(albanian);
+  });
+
+  it('does not spell out numerals in Albanian, where cardinals are correct', () => {
+    // Macedonian needs "26" -> "дваесет и шести" because a date takes an
+    // ordinal. Albanian dates take the cardinal, so the numeral is already
+    // right and rewriting it would be the bug.
+    const albanian = 'Termini është më 26 gusht, në orën 10.';
     expect(sanitizeForSpeech(albanian, { language: 'sq' })).toBe(albanian);
   });
 });

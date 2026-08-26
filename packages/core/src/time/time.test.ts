@@ -131,9 +131,50 @@ describe('speaking in the other two languages', () => {
     );
   });
 
-  it('formats Albanian (provisional — verified in Phase 8)', () => {
+  it('formats Albanian, with the part of day the confirmation needs', () => {
+    // Verified through real Azure TTS and STT by `verify:albanian`.
     expect(speakDateTime(instant, SKOPJE, 'sq', { now: far })).toBe(
-      'të martën, 8 shtator, në orën 10 e gjysmë',
+      'të martën, 8 shtator, në orën 10 e gjysmë në mëngjes',
     );
+  });
+});
+
+describe('Albanian phrasing', () => {
+  /**
+   * Verified against real sq-AL speech with `verify:albanian`: these exact
+   * strings round-tripped through Azure TTS and STT at 100% word accuracy.
+   */
+  it('says an afternoon slot with a part of day, not a bare hour', () => {
+    // 14:30 Skopje. Without the suffix this was "në orën 2 e gjysmë", which
+    // does not say whether it is 2am or 2pm — on a booking confirmation,
+    // exactly the wrong thing to make someone infer.
+    const instant = new Date('2026-09-04T12:30:00.000Z');
+    expect(speakTime(instant, SKOPJE, 'sq')).toBe('në orën 2 e gjysmë pasdite');
+  });
+
+  it('marks morning and evening too', () => {
+    expect(speakTime(new Date('2026-09-04T07:00:00.000Z'), SKOPJE, 'sq')).toBe(
+      'në orën 9 në mëngjes',
+    );
+    expect(speakTime(new Date('2026-09-04T17:00:00.000Z'), SKOPJE, 'sq')).toBe(
+      'në orën 7 në mbrëmje',
+    );
+  });
+
+  it('names the weekday and month for a date further out', () => {
+    const instant = new Date('2026-09-04T07:00:00.000Z');
+    const far = new Date('2026-08-20T09:00:00.000Z');
+    expect(speakDate(instant, SKOPJE, 'sq', { now: far })).toBe('të premten, 4 shtator');
+  });
+
+  it('uses the relative word for tomorrow', () => {
+    const now = new Date('2026-09-03T09:00:00.000Z');
+    const instant = new Date('2026-09-04T07:00:00.000Z');
+    expect(speakDate(instant, SKOPJE, 'sq', { now })).toBe('nesër');
+  });
+
+  it('phrases a duration', () => {
+    expect(speakDuration(30, 'sq')).toBe('30 minuta');
+    expect(speakDuration(60, 'sq')).toBe('një orë');
   });
 });

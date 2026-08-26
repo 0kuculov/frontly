@@ -99,6 +99,18 @@ export interface CallSessionOptions {
    */
   onTransfer?: ((to: string) => Promise<void>) | undefined;
 
+  /**
+   * A booking just succeeded. Fired so the adapter can text the confirmation
+   * while the caller is still holding the phone — which is the feature; one
+   * that arrives on the next cron tick is a receipt.
+   *
+   * Deliberately fire-and-forget and never awaited: an SMS round trip inside
+   * a turn would be added to the caller's latency, and the hourly sweep
+   * already picks up anything that fails, because the appointment's
+   * `confirmation_sent_at` stays NULL.
+   */
+  onBooked?: ((appointmentId: string) => void) | undefined;
+
   /** Reprompt after this much silence. */
   silenceMs?: number;
   /** How many reprompts before offering a callback and ending. */
@@ -748,6 +760,19 @@ export class CallSession {
       }
 
       await this.persist(false);
+
+      /**
+       * Text the confirmation now, not on the next sweep.
+       *
+       * Read from the tool's own output rather than re-querying: this is the
+       * one place that knows a booking was made by THIS turn, and the id it
+       * returned is the appointment to confirm.
+       */
+      for (const call of result.toolCalls) {
+        if (call.name !== 'book_appointment' || call.error) continue;
+        const id = (call.output as { appointment_id?: unknown } | undefined)?.appointment_id;
+        if (typeof id === 'string') this.options.onBooked?.(id);
+      }
 
       // The engine asked for a human. Its explanation is already queued, so let
       // the caller hear it before the line moves anywhere.

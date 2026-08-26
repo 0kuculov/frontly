@@ -166,7 +166,10 @@ class AzureSpeechToText implements ISpeechToText {
       // Auto-detection for the caller's first utterance. AtStart decides once
       // from the opening audio, which is exactly the product rule — detect,
       // then lock — and is cheaper than re-deciding every utterance.
-      config.setProperty(sdk.PropertyId.SpeechServiceConnection_LanguageIdMode, 'AtStart');
+      config.setProperty(
+        sdk.PropertyId.SpeechServiceConnection_LanguageIdMode,
+        options.languageIdMode ?? 'AtStart',
+      );
       const detect = sdk.AutoDetectSourceLanguageConfig.fromLanguages(locales);
       this.recognizer = sdk.SpeechRecognizer.FromConfig(config, detect, audioConfig);
     } else {

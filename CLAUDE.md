@@ -211,6 +211,35 @@ add drizzle to the API.
     it as evidence that segmentation is free on a real call, where the caller's
     pause is real time. It does mean **`simulate:call` cannot measure this
     tradeoff** — only a real call can.
+- **A caller who switches language mid-call is not merely answered in the wrong
+  language — they become untranscribable.** Measured 26 Aug 2026 with
+  `verify:azure` (two utterances through ONE recognizer, which is what a call
+  is; two separate `recognize()` calls each get their own detection and would
+  both succeed, measuring nothing):
+
+  | mode | utterance 1 | utterance 2 after the switch |
+  |---|---|---|
+  | `AtStart` (ships) | correct, 0.84–0.96 | **0.05**, pure garbage |
+  | `Continuous` | correct, 0.84–0.96 | correct, 0.85–0.94 |
+
+  Under `AtStart`, English after Macedonian came back as
+  "Акто и крвта држи активни улиците." and Macedonian after English as
+  "Sakamda Zakhazam's Tomatolovsky, Preglades Zoutre and outro." Both orders,
+  every time. `SpeechServiceConnection_LanguageIdMode = AtStart` decides once
+  from the opening audio and decodes the WHOLE connection that way.
+  - **Opening in any language is fine** — detection is correct on the first
+    utterance in every run. The failure needs a switch *after* the opening.
+  - **0.05 is far below `minConfidence` (0.4), so the low-confidence path
+    fires.** The agent says it did not catch you rather than acting on
+    garbage: embarrassing, not dangerous. Nothing gets booked off a mistrans-
+    lation.
+  - **`Continuous` scored 4/4 and is still not shipped** (owner's call, 26 Aug).
+    The measurement cannot see the thing that makes it risky: these clips are
+    clean TTS separated by 3s of digital silence, so nothing here tests a flip
+    *mid-sentence* on a noisy 8kHz line. Simulated audio has already misled
+    this project twice on timing; treat a clean 4/4 as "worth a real call",
+    not as "safe to ship". `languageIdMode` on `SpeechToTextOptions` exists
+    only so the script can measure it — production never sets it.
 - **Time-to-first-token dominates voice latency**, not sentence length. Measured
   on Sonnet 5: 2.8s to first token, first sentence ~5ms later. Streaming cannot
   fix a slow first token — only a faster model, a shorter system prompt, or a
@@ -477,6 +506,55 @@ add drizzle to the API.
   `/demo/metrics` beside it queries Turso and shows real production numbers.
   Moving numbers next to a blank transcript is that misconfiguration, not a
   broken stream.
+
+### SMS (Phase 6), and why the obvious registration is the wrong one
+
+- **The number cannot text a single real customer.** Checked on the live
+  account, not assumed: `+16193497599` is a `longcode` whose messaging
+  features read `international_outbound: false`. Every customer is a +389
+  mobile. So the US-domestic path is a *test harness*, not the product.
+- **A2P 10DLC is the wrong lane.** It gates US long codes sending to US
+  recipients. Registering it would have cost days and bought nothing for MK.
+  The right route is an **alphanumeric sender ID** (`FRONTLY`), which is how
+  the Balkans receive one-way notifications and needs Telnyx to enable it per
+  destination country.
+- **`TELNYX_SMS_FROM` is the entire switch.** `smsSender()` in
+  `packages/shared` is the only code that knows the difference between sending
+  from a number and sending from a name; alphanumeric additionally requires
+  `TELNYX_MESSAGING_PROFILE_ID`, and setting one without the other fails at
+  boot with the variable named.
+- **Telnyx ACCEPTS an undeliverable message and fails later.** A 200 from the
+  send call proves nothing, so `undeliverableReason()` refuses a US long code
+  aimed at an international destination *before* spending the request. Without
+  it the only evidence is a delivery receipt nobody is watching.
+- **There is no queue, and that is the design.** "Has this been sent?" is a
+  column on the appointment (`confirmation_sent_at`, `reminder_sent_at`), so
+  every sweep is idempotent by construction and the hourly cron IS the retry.
+  The one rule that must never break: **stamp after the carrier accepts, never
+  before** — a stamp written first turns a transient failure into a message
+  nobody ever receives, with no record that it was owed.
+- **The cron is hourly and decides for itself what is due.** It is NOT
+  scheduled at 20:00: Render's scheduler is UTC and `Europe/Skopje` is UTC+1 or
+  +2 by season, so a summary pinned to a UTC hour arrives at 19:00 for half the
+  year. `sendDailySummaries()` checks each business's own local clock instead.
+  Day boundaries come off the calendar, not from adding 86,400,000ms, for the
+  same reason.
+- **The cron entry lives in `src/`, not `scripts/`.** The build compiles only
+  `src/` into `dist/`, and Render must run compiled JavaScript — a cron under
+  `scripts/` would need `tsx`, a dev dependency, in the production image.
+- **A Macedonian SMS costs 70 characters, not 160.** Cyrillic is not in GSM-7,
+  so the whole message becomes UCS-2 and a single part is 70 characters. This
+  is not theoretical: the first reminder template came to **71** with the
+  doctor's name in it and silently billed as two messages. The name lives in
+  the confirmation instead, and `partsFor()` logs encoding and part count on
+  every send so the next one shows up in a log line rather than an invoice.
+- **Follow-up messages are NOT run through `sanitizeForSpeech`.** That pass
+  spells numerals out because Azure reads "26" as "дваесет и шест". An SMS is
+  read with the eyes, where "03.09 во 10:30" is both clearer and — given the
+  70-character limit — cheaper.
+- **Inbound SMS is logged and not answered.** Replying would mean a second
+  conversation channel, and a channel is a `packages/core` adapter (Phase 5),
+  not something to improvise inside a webhook.
 
 ### Telnyx, and the Twilio assumptions that do not survive it
 

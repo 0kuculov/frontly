@@ -20,6 +20,7 @@
     "db:migrate": "pnpm --filter @frontly/core db:migrate",
     "db:migrate:dist": "pnpm --filter @frontly/core db:migrate:dist",
     "start": "node apps/api/dist/server.js",
+    "follow-up:dist": "pnpm --filter @frontly/api follow-up:dist",
     "db:seed": "pnpm --filter @frontly/core db:seed",
     "db:reset": "pnpm --filter @frontly/core db:reset",
     "db:studio": "pnpm --filter @frontly/core db:studio",

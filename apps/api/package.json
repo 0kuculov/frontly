@@ -8,6 +8,7 @@
     "build": "tsc -b",
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "start": "node dist/server.js",
+    "follow-up:dist": "node dist/follow-up-cron.js",
     "typecheck": "tsc -p tsconfig.check.json",
     "test": "vitest run",
     "verify:azure": "tsx scripts/verify-azure.ts",

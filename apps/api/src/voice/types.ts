@@ -99,6 +99,20 @@ export interface SpeechToTextOptions {
   phrases?: string[] | undefined;
   /** Somewhere to report what each finalization was triggered by. */
   onDiagnostic?: ((payload: Record<string, unknown>, message: string) => void) | undefined;
+  /**
+   * When Azure decides which language it is hearing.
+   *
+   * `AtStart` (the default, and what every call uses) decides once from the
+   * opening audio and decodes the whole connection that way. `Continuous`
+   * re-decides per utterance, which is the only thing that could survive a
+   * caller switching language mid-call — and is NOT shipped: a wrong flip
+   * mid-sentence over 8kHz would be worse on stage than being consistently in
+   * the wrong language.
+   *
+   * Exposed purely so `verify:azure` can measure the difference on this
+   * account and these locales instead of arguing about it from a docs page.
+   */
+  languageIdMode?: 'AtStart' | 'Continuous' | undefined;
 }
 
 export interface ISpeechProvider {

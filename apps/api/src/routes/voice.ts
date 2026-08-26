@@ -37,6 +37,14 @@ export interface VoiceRoutesOptions {
   speechReady?: Promise<unknown> | undefined;
   /** How long to wait for that before answering anyway. */
   speechReadyTimeoutMs?: number;
+  /**
+   * Text the confirmation the moment a booking is made.
+   *
+   * Optional: the phone works without SMS configured, and a missing messaging
+   * profile must never stop a call being answered. Failures here are picked
+   * up by the hourly sweep.
+   */
+  onBooked?: ((appointmentId: string) => void) | undefined;
 }
 
 export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, opts) => {
@@ -374,6 +382,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
           // The demo screen listens here. The session does not know that.
           onEvent: (event) => callEvents.publish(event),
           onHangUp: endCall,
+          ...(opts.onBooked ? { onBooked: opts.onBooked } : {}),
           onTransfer: async (to) => {
             await telephony.transfer({
               callRef: input.callRef,

@@ -5,14 +5,18 @@ import websocket from '@fastify/websocket';
 import { createDb, enableForeignKeys, type Database } from '@frontly/core';
 import type { ServerEnv } from '@frontly/shared';
 import { registerDemoRoutes } from './routes/demo.js';
+import { registerSmsRoutes } from './routes/sms.js';
 import { healthRoutes } from './routes/health.js';
 import { voiceRoutes } from './routes/voice.js';
 import { AzureSpeechProvider } from './voice/azure.js';
 import { SpeechCache } from './voice/speech-cache.js';
 import { TelnyxProvider } from './voice/telnyx.js';
+import { confirmNow } from './sms/follow-up.js';
+import { TelnyxSmsProvider, type ISmsProvider } from './sms/sms.js';
 import { warmAllBusinesses } from './voice/warm.js';
 import type { ITelephonyProvider } from './voice/telephony.js';
 import type { ISpeechProvider } from './voice/types.js';
+import { smsSender } from '@frontly/shared';
 
 export const API_VERSION = '0.1.0';
 
@@ -36,6 +40,8 @@ export interface BuildAppOptions {
   telephonyProvider?: ITelephonyProvider;
   /** Tests turn this off so they do not synthesize on boot. */
   warmSpeechCache?: boolean;
+  /** Injectable so tests never send a real text message. */
+  smsProvider?: ISmsProvider;
   /**
    * Refuse to boot without a working voice channel. Defaults to true in
    * production. Tests set it explicitly rather than depending on NODE_ENV.
@@ -107,6 +113,40 @@ export async function buildApp(
       ? new TelnyxProvider({ apiKey: env.TELNYX_API_KEY, publicKey: env.TELNYX_PUBLIC_KEY })
       : undefined);
 
+  /**
+   * SMS is optional, and stays optional.
+   *
+   * The phone is the product; follow-up messages are not. A missing messaging
+   * profile must never stop a call being answered, so unlike the voice channel
+   * this is never asserted at boot — it simply logs what it is missing and the
+   * confirmation hook is left unwired.
+   */
+  const sender = smsSender(env);
+  const sms: ISmsProvider | undefined =
+    options.smsProvider ??
+    (env.TELNYX_API_KEY && sender
+      ? new TelnyxSmsProvider({ apiKey: env.TELNYX_API_KEY, sender })
+      : undefined);
+
+  if (sms && sender) {
+    app.log.info(
+      { from: sender.from, alphanumeric: sender.alphanumeric },
+      'SMS follow-up enabled',
+    );
+  } else {
+    app.log.warn(
+      { hasApiKey: Boolean(env.TELNYX_API_KEY), hasSender: Boolean(sender) },
+      'SMS follow-up disabled — set TELNYX_SMS_FROM to enable',
+    );
+  }
+
+  /**
+   * Registered with the resolved provider, not `options.telephonyProvider`:
+   * webhook signatures are verified by the real Telnyx public key, and an
+   * injected test double would leave production unverified.
+   */
+  await app.register(registerSmsRoutes, { env, telephony });
+
   const voiceRequired = options.requireVoiceChannel ?? env.NODE_ENV === 'production';
 
   if (!speech || !telephony) {
@@ -151,7 +191,33 @@ export async function buildApp(
               );
             });
 
-    await app.register(voiceRoutes, { db, env, telephony, speech, cache, speechReady });
+    await app.register(voiceRoutes, {
+      db,
+      env,
+      telephony,
+      speech,
+      cache,
+      speechReady,
+      /**
+       * Never awaited, and never allowed to reach the caller: a failed text
+       * must not turn a successful booking into a failed turn. The hourly
+       * sweep retries anything that did not go out.
+       */
+      ...(sms
+        ? {
+            onBooked: (appointmentId: string) => {
+              void confirmNow({ db, sms, logger: app.log }, appointmentId).catch(
+                (error: unknown) => {
+                  app.log.error(
+                    { appointmentId, err: error instanceof Error ? error.message : error },
+                    'confirmation SMS failed',
+                  );
+                },
+              );
+            },
+          }
+        : {}),
+    });
     voiceChannel = { carrier: telephony.name, prefix: telephony.routePrefix };
 
     /**

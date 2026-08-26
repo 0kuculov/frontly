@@ -154,6 +154,18 @@ export const appointments = sqliteTable(
     /** voice | chat | manual - where this booking came from. */
     channel: text('channel', { enum: BOOKING_SOURCES }).notNull(),
     notes: text('notes'),
+    /**
+     * When the confirmation SMS went out. NULL means it still owes one.
+     *
+     * Stamped rather than assumed, because this is what makes the hourly
+     * sweep idempotent AND a retry: the adapter sends immediately when the
+     * booking is made, and anything that failed — Telnyx down, the process
+     * restarted mid-turn — is still unstamped and gets picked up next hour.
+     * That is the whole reason there is no queue.
+     */
+    confirmationSentAt: integer('confirmation_sent_at', { mode: 'timestamp_ms' }),
+    /** When the 24h reminder went out. NULL means it is still due. */
+    reminderSentAt: integer('reminder_sent_at', { mode: 'timestamp_ms' }),
     ...timestamps,
   },
   (t) => [
@@ -171,6 +183,12 @@ export const appointments = sqliteTable(
     index('appointments_business_time_idx').on(t.businessId, t.startsAt),
     index('appointments_staff_time_idx').on(t.staffId, t.startsAt),
     index('appointments_customer_phone_idx').on(t.businessId, t.customerPhone),
+    /**
+     * The reminder sweep runs hourly and asks the same question every time:
+     * which live appointments start soon and have not been reminded yet.
+     * Without this it is a full scan of every booking ever made.
+     */
+    index('appointments_reminder_idx').on(t.reminderSentAt, t.startsAt),
   ],
 );
 

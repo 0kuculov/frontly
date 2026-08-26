@@ -72,3 +72,60 @@ services:
         generateValue: true
       - key: DEMO_RESET_TOKEN
         generateValue: true
+
+      # --- Phase 6: SMS follow-up ---------------------------------------
+      # Who messages come from: an E.164 number the account owns, or an
+      # alphanumeric sender ID like FRONTLY. This one variable is the switch.
+      #
+      # The account's only number is a US long code with
+      # international_outbound: false (checked on the live account), so it can
+      # reach US handsets and NOT the +389 mobiles every customer actually has.
+      # Alphanumeric sender is how the Balkans receive one-way notifications
+      # and needs no A2P 10DLC — that framework is US-domestic and would not
+      # have helped. Set this to the approved sender ID once Telnyx enables MK.
+      - key: TELNYX_SMS_FROM
+        sync: false
+      # Required by Telnyx whenever TELNYX_SMS_FROM is alphanumeric: there is
+      # no number to look the profile up from. Boot fails if one is set
+      # without the other.
+      - key: TELNYX_MESSAGING_PROFILE_ID
+        sync: false
+
+  # The follow-up sweep: confirmations that did not go out, reminders due in
+  # 24h, and the owner's evening summary.
+  #
+  # Hourly, and it decides for itself what is due. NOT scheduled at 20:00,
+  # because Render's cron is UTC while the clinic runs on Europe/Skopje —
+  # UTC+1 or +2 depending on the season — so a summary pinned to a UTC hour
+  # would arrive at 19:00 for half the year. sendDailySummaries() checks each
+  # business's own local clock instead.
+  #
+  # Runs the COMPILED entry point: tsx is a dev dependency and has no business
+  # in a production image, the same reason startCommand uses db:migrate:dist.
+  - type: cron
+    name: frontly-follow-up
+    runtime: node
+    region: frankfurt
+    plan: starter
+    branch: main
+    schedule: "0 * * * *"
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm follow-up:dist
+    envVars:
+      - key: NODE_VERSION
+        value: 24.18.0
+      - key: NODE_ENV
+        value: production
+      # Every one of these must be set by hand in the dashboard: sync: false
+      # means Render never copies a value across from the web service, and a
+      # cron with no DATABASE_URL fails silently once an hour.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_AUTH_TOKEN
+        sync: false
+      - key: TELNYX_API_KEY
+        sync: false
+      - key: TELNYX_SMS_FROM
+        sync: false
+      - key: TELNYX_MESSAGING_PROFILE_ID
+        sync: false

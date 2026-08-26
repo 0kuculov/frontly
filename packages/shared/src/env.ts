@@ -68,6 +68,24 @@ const serverEnvShape = z
     // --- Phase 4 -------------------------------------------------------
     AUTH_SECRET: z.string().min(32).optional(),
 
+    // --- Phase 6: SMS follow-up ----------------------------------------
+    /**
+     * Who the message appears to come from.
+     *
+     * Either an E.164 number the account owns, or an alphanumeric sender ID
+     * like `FRONTLY`. This is the whole switch: North Macedonia is reached by
+     * alphanumeric sender, and the US long code cannot reach it at all
+     * (`international_outbound: false` on the number, checked on the live
+     * account). When Telnyx approves MK, this variable changes and nothing
+     * else does — see `smsSender()`, which is the only place that cares.
+     */
+    TELNYX_SMS_FROM: z.string().optional(),
+    /**
+     * Required by Telnyx whenever `from` is alphanumeric: there is no number
+     * to look the profile up from, so it has to be named explicitly.
+     */
+    TELNYX_MESSAGING_PROFILE_ID: z.string().optional(),
+
     // --- Phase 7 -------------------------------------------------------
     DEMO_RESET_TOKEN: z.string().optional(),
   })
@@ -140,6 +158,22 @@ const serverEnvShape = z
      * accepts anything. That is fine on a laptop and unacceptable on a public
      * URL, where the endpoint answers phone calls that cost money.
      */
+    /**
+     * An alphanumeric sender with no messaging profile is a configuration that
+     * cannot send anything — Telnyx rejects every request. Catching it here
+     * turns a silent "no reminders went out today" into a boot error naming
+     * the variable.
+     */
+    if (env.TELNYX_SMS_FROM && !/^\+?\d+$/.test(env.TELNYX_SMS_FROM) && !env.TELNYX_MESSAGING_PROFILE_ID) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TELNYX_MESSAGING_PROFILE_ID'],
+        message:
+          `TELNYX_SMS_FROM is "${env.TELNYX_SMS_FROM}", an alphanumeric sender ID, which Telnyx ` +
+          'only accepts alongside a messaging profile id. Set TELNYX_MESSAGING_PROFILE_ID.',
+      });
+    }
+
     if (env.NODE_ENV === 'production' && env.TELNYX_API_KEY && !env.TELNYX_PUBLIC_KEY) {
       ctx.addIssue({
         code: 'custom',

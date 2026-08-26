@@ -96,6 +96,51 @@ async function recognize(
   });
 }
 
+/**
+ * Feed several utterances through ONE recognizer and collect every final.
+ *
+ * This is the shape that matters for language switching: a call is a single
+ * recognizer connection, and `AtStart` decides once for the whole of it. Two
+ * separate `recognize()` calls would each get their own detection and would
+ * therefore both succeed — measuring nothing, and saying the opposite of what
+ * a real call does.
+ *
+ * Silence between utterances, and after the last, because Azure's end-of-phrase
+ * timer measures silence in the audio it RECEIVES; stop feeding and the final
+ * never arrives.
+ */
+async function recognizeSequence(
+  clips: { language: Language; audio: Buffer }[],
+  languages: Language[],
+  languageIdMode: 'AtStart' | 'Continuous',
+): Promise<TranscriptionResult[]> {
+  const heard: TranscriptionResult[] = [];
+
+  const stt = provider.createRecognizer({
+    languages,
+    languageIdMode,
+    handlers: {
+      onFinal: (result) => heard.push(result),
+      onError: (error) => console.error('   STT error:', error.message),
+    },
+  });
+
+  await stt.ready;
+  for (const clip of clips) {
+    for (let offset = 0; offset < clip.audio.length; offset += 160) {
+      stt.write(clip.audio.subarray(offset, offset + 160));
+    }
+    // Comfortably past the segmentation timeout, so this utterance finalizes
+    // before the next one starts rather than merging into it.
+    stt.write(Buffer.alloc(TELEPHONY_SAMPLE_RATE * 3, 0xff));
+  }
+
+  // Azure finalizes asynchronously; give the last one room to land.
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  await stt.stop();
+  return heard;
+}
+
 /** The clinic's own vocabulary, loaded once from the seeded database. */
 let vocabulary: Partial<Record<Language, string[]>> = {};
 
@@ -169,6 +214,58 @@ async function main(): Promise<void> {
     );
   }
   console.log();
+
+  await measureLanguageSwitch();
+}
+
+/**
+ * What happens when a caller changes language mid-call.
+ *
+ * A judge on stage may well greet in English and carry on in Macedonian, and
+ * "the session locks to the detected language" does not say whether the second
+ * half is merely answered in the wrong language or cannot be transcribed at
+ * all. Those are very different stage risks, so this measures rather than
+ * reasons: two utterances, one recognizer, both modes, both orders.
+ */
+async function measureLanguageSwitch(): Promise<void> {
+  console.log('language switching mid-call (two utterances, ONE recognizer):');
+  console.log();
+
+  const mk = await synthesize('mk', 'Сакам да закажам стоматолошки преглед за утре наутро.', false);
+  const en = await synthesize('en', 'Actually, could we make that Thursday afternoon instead?', false);
+
+  const orders: { label: string; clips: { language: Language; audio: Buffer }[] }[] = [
+    { label: 'mk then en', clips: [{ language: 'mk', audio: mk.audio }, { language: 'en', audio: en.audio }] },
+    { label: 'en then mk', clips: [{ language: 'en', audio: en.audio }, { language: 'mk', audio: mk.audio }] },
+  ];
+
+  for (const mode of ['AtStart', 'Continuous'] as const) {
+    console.log(`  LanguageIdMode = ${mode}${mode === 'AtStart' ? '   (what ships)' : '   (NOT shipped)'}`);
+    for (const { label, clips } of orders) {
+      const heard = await recognizeSequence(clips, ['mk', 'sq', 'en'], mode);
+      console.log(`    ${label}:`);
+      if (heard.length === 0) {
+        console.log('      nothing recognised at all');
+        continue;
+      }
+      for (const [i, result] of heard.entries()) {
+        const wanted = clips[i]?.language ?? '?';
+        const detected = result.detectedLanguage ?? '—';
+        const flag = detected === wanted ? 'OK ' : 'BAD';
+        console.log(
+          `      [${flag}] utterance ${i + 1} spoken ${wanted}, detected ${detected}, ` +
+            `conf ${result.confidence.toFixed(2)}`,
+        );
+        console.log(`            "${result.text}"`);
+      }
+      // Fewer finals than clips means one utterance produced nothing at all,
+      // which is the worst outcome and the easiest to miss in a table.
+      if (heard.length < clips.length) {
+        console.log(`      only ${heard.length} of ${clips.length} utterances finalized`);
+      }
+    }
+    console.log();
+  }
 }
 
 main().catch((error: unknown) => {

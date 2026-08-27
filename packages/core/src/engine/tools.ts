@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 
 /**
- * The five things the agent can do.
+ * Everything the agent can do.
  *
  * Every booking action is a tool call. The model is never trusted to describe
  * a booking in prose and have something else parse it — if it did not call a
@@ -50,15 +50,10 @@ export const transferToHumanInput = z.object({
   reason: z.string().min(1),
 });
 
-export const TOOL_NAMES = [
-  'check_availability',
-  'book_appointment',
-  'cancel_appointment',
-  'reschedule_appointment',
-  'transfer_to_human',
-] as const;
-
-export type ToolName = (typeof TOOL_NAMES)[number];
+export const confirmDetailsInput = z.object({
+  customer_name: z.string().min(1),
+  customer_contact: z.string().min(1),
+});
 
 export interface BuildToolsOptions {
   /**
@@ -166,6 +161,30 @@ export function buildTools(options: BuildToolsOptions = {}): Anthropic.Tool[] {
           },
         },
         required: ['reason'],
+        additionalProperties: false,
+      },
+    }),
+
+    withStrict({
+      name: 'confirm_details',
+      description:
+        'Потврди го името и телефонскиот број пред закажување. Повикај ја ПРЕД book_appointment, ' +
+        'изговори му ги на пациентот како што ги разбра, и почекај тој да потврди во следната реплика. ' +
+        'Не смееш да закажеш во истата реплика во која ја повикуваш оваа алатка — пациентот мора да добие ' +
+        'можност да те исправи. Ако те исправи, повикај ја повторно со точните податоци.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          customer_name: {
+            type: 'string',
+            description: 'Целото име на пациентот, точно како ќе го изговориш назад.',
+          },
+          customer_contact: {
+            type: 'string',
+            description: 'Телефонскиот број на пациентот, точно како ќе го изговориш назад.',
+          },
+        },
+        required: ['customer_name', 'customer_contact'],
         additionalProperties: false,
       },
     }),

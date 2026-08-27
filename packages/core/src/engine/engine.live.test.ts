@@ -111,6 +111,54 @@ describe.skipIf(!live)('the real model against the Macedonian prompt', () => {
     expect(second.state.outcome).toBe('transferred');
   });
 
+  /**
+   * Does the model USE the gate, or only get caught by it?
+   *
+   * `book_appointment` refuses without a prior `confirm_details`, so a booking
+   * can never slip through unconfirmed. But being refused costs a round trip
+   * the caller hears as silence, and if the model routinely has to be rejected
+   * before it complies then the prompt rule is not working and the gate is
+   * papering over it. This is the only way to tell those apart.
+   */
+  it('reads the details back of its own accord', { timeout: 120_000 }, async () => {
+    const c = ctx();
+
+    const t1 = await handleTurn(
+      'live_gate',
+      'Добар ден, сакам стоматолошки преглед утре наутро.',
+      c,
+    );
+    c.state = t1.state;
+
+    const t2 = await handleTurn('live_gate', 'Десет и половина ми одговара.', c);
+    c.state = t2.state;
+
+    const t3 = await handleTurn(
+      'live_gate',
+      'Се викам Марко Петровски, бројот ми е нула седумдесет сто единаесет двесте дваесет и два.',
+      c,
+    );
+    c.state = t3.state;
+
+    const namesAcross = [t1, t2, t3].flatMap((t) => t.toolCalls.map((call) => call.name));
+
+    // It confirmed at some point before booking anything...
+    expect(namesAcross).toContain('confirm_details');
+    // ...and nothing was booked while the caller had not yet said yes.
+    expect(namesAcross).not.toContain('book_appointment');
+
+    // And it was not simply rejected into compliance: a refusal here means the
+    // prompt rule is being ignored and only the executor is holding the line.
+    const refusals = [t1, t2, t3]
+      .flatMap((t) => t.toolCalls)
+      .filter((call) => call.error?.includes('details_not_confirmed'));
+    expect(refusals).toHaveLength(0);
+
+    // The read-back has to actually reach the caller's ear, not just the log.
+    const spoken = `${t2.reply} ${t3.reply}`.toLowerCase();
+    expect(spoken).toMatch(/петровски|точно|потврд/);
+  });
+
   it('does not book before the caller has confirmed', { timeout: 60_000 }, async () => {
     const c = ctx();
     const first = await handleTurn('live_5', 'Сакам преглед утре во десет и половина, се викам Марко Петровски.', c);

@@ -50,6 +50,21 @@ export interface ConversationState {
    * first is what made the agent say goodbye and then keep the line open.
    */
   concluded?: boolean;
+  /**
+   * The name and number the agent read back, and the turn it did it on.
+   *
+   * `book_appointment` refuses without a matching entry from an EARLIER turn.
+   * Not politeness — a data-integrity gate. Recognition confidence cannot tell
+   * a correct booking from a misheard one: a butchered Macedonian sentence
+   * once scored 0.87 against a correct 0.88, and in Albanian the score is a
+   * constant 0.79 whatever is said. So the only reliable check on a name is
+   * the caller hearing it back and saying yes.
+   *
+   * `turn` is what makes it real. Requiring a LATER turn means the caller
+   * necessarily got a chance to answer — the model cannot confirm and book in
+   * one breath.
+   */
+  detailsConfirmation?: { name: string; phone: string; turn: number };
   turnCount: number;
 }
 

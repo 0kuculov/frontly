@@ -9,6 +9,7 @@ import {
   bookAppointmentInput,
   cancelAppointmentInput,
   checkAvailabilityInput,
+  confirmDetailsInput,
   rescheduleAppointmentInput,
   transferToHumanInput,
 } from './tools.js';
@@ -76,6 +77,8 @@ export async function executeTool(
         return await runRescheduleAppointment(rawInput, ctx);
       case 'transfer_to_human':
         return runTransferToHuman(rawInput, ctx);
+      case 'confirm_details':
+        return runConfirmDetails(rawInput, ctx);
       case 'end_call':
         return runEndCall(ctx);
       default:
@@ -223,6 +226,20 @@ async function runBookAppointment(
     );
   }
 
+  /**
+   * The hard stop on a misheard name or number.
+   *
+   * Deliberately not left to the prompt. Recognition confidence cannot
+   * separate a correct booking from a confidently wrong one — a butchered
+   * Macedonian sentence scored 0.87 against a correct 0.88, and Albanian
+   * returns a constant 0.79 whatever is said — so the caller hearing their own
+   * details read back is the only check that actually works. Applied in every
+   * language, because the failure ("Petrovski" heard as "Petrovci") is fluent,
+   * high-confidence and language-independent.
+   */
+  const notConfirmed = detailsNotConfirmed(ctx, input.customer_name, input.customer_contact);
+  if (notConfirmed) return notConfirmed;
+
   const appointment = await bookAppointment(ctx.db, {
     business: ctx.business,
     serviceId: service.id,
@@ -321,6 +338,110 @@ async function runRescheduleAppointment(
       spoken: speakDateTime(updated.startsAt, ctx.business.timezone, ctx.state.language, { now }),
     },
   };
+}
+
+// --- confirm_details ---------------------------------------------------------
+
+/**
+ * Normalised so a confirmation survives ordinary reformatting.
+ *
+ * The model may read a number back as "070 123 456" and then pass
+ * "+38970123456" to the booking. That is the same number and must not count as
+ * unconfirmed — separators and case carry no identity, the digits and letters
+ * do.
+ */
+function normaliseDetail(value: string): string {
+  return value.toLowerCase().replace(/[\s\-().+]/g, '').trim();
+}
+
+/**
+ * Is this the same phone number the caller heard read back?
+ *
+ * Compared on the last eight digits rather than the whole string, because
+ * "070 111 222" and "+389 70 111 222" are the same Macedonian mobile written
+ * two ways, and the model routinely reads one form aloud and passes the other
+ * to the booking. A gate that rejected that would fire on CORRECT bookings —
+ * and a safety check that cries wolf is a safety check somebody switches off.
+ *
+ * Eight digits is the significant part of a Macedonian mobile after the
+ * national or country prefix. Anything shorter is compared whole.
+ */
+function sameContact(a: string, b: string): boolean {
+  const digitsOf = (value: string) => value.replace(/\D/g, '');
+  const left = digitsOf(a);
+  const right = digitsOf(b);
+
+  if (left.length < 8 || right.length < 8) return normaliseDetail(a) === normaliseDetail(b);
+  return left.slice(-8) === right.slice(-8);
+}
+
+function runConfirmDetails(rawInput: unknown, ctx: TurnContext): ToolExecutionResult {
+  const input = confirmDetailsInput.parse(rawInput);
+
+  ctx.state.detailsConfirmation = {
+    name: normaliseDetail(input.customer_name),
+    phone: normaliseDetail(input.customer_contact),
+    /**
+     * The turn this happened on. `book_appointment` requires a LATER one,
+     * which is the whole mechanism: it forces the caller to have been given a
+     * chance to answer, rather than the model confirming and booking in one
+     * breath.
+     */
+    turn: ctx.state.turnCount,
+  };
+
+  return {
+    isError: false,
+    output: {
+      awaiting_confirmation: true,
+      customer_name: input.customer_name,
+      customer_contact: input.customer_contact,
+      note:
+        'Изговори му ги името и бројот на пациентот и почекај да потврди. ' +
+        'Не закажувај во оваа реплика.',
+    },
+  };
+}
+
+/**
+ * Why this booking may not proceed, or undefined if it may.
+ *
+ * Three refusals rather than one, because the model has to know which mistake
+ * it made: never confirmed, confirmed something else, or confirmed and booked
+ * in the same breath. A single generic error would have it retry the same way.
+ */
+function detailsNotConfirmed(
+  ctx: TurnContext,
+  name: string,
+  contact: string,
+): ToolExecutionResult | undefined {
+  const confirmation = ctx.state.detailsConfirmation;
+
+  if (!confirmation) {
+    return fail(
+      'details_not_confirmed',
+      'Пред да закажеш мораш да ги потврдиш податоците. Повикај ја confirm_details со името ' +
+        'и бројот, изговори му ги на пациентот, и закажи дури откако ќе потврди.',
+    );
+  }
+
+  if (confirmation.name !== normaliseDetail(name) || !sameContact(confirmation.phone, contact)) {
+    return fail(
+      'details_changed_since_confirmation',
+      'Името или бројот се различни од тие што ги потврди пациентот. Повикај ја повторно ' +
+        'confirm_details со точните податоци и почекај нова потврда.',
+    );
+  }
+
+  if (ctx.state.turnCount <= confirmation.turn) {
+    return fail(
+      'confirmation_too_soon',
+      'Ги потврди податоците во истата реплика. Почекај пациентот да одговори дека се точни, ' +
+        'па закажи во следната реплика.',
+    );
+  }
+
+  return undefined;
 }
 
 // --- transfer_to_human -------------------------------------------------------

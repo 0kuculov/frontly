@@ -14,6 +14,7 @@ import { DEMO_IDS } from '../db/seed.js';
 import { createTestDb, type TestDatabase } from '../db/testing.js';
 import { bookAppointment } from '../booking/booking.js';
 import { fromZonedWallClock } from '../time/zone.js';
+import { executeTool } from './executor.js';
 import { handleTurn } from './handle-turn.js';
 import {
   AnthropicLanguageModel,
@@ -94,10 +95,21 @@ describe('a full booking conversation in Macedonian', () => {
       // 2. Caller says tomorrow morning -> look it up, then offer.
       scriptedToolUse([{ name: 'check_availability', input: checkTomorrow }]),
       scriptedText('Утре имаме слободно во девет часот наутро или во десет и половина наутро.'),
-      // 3. Caller picks 10:30 -> read the whole thing back before booking.
+      // 3. Caller picks 10:30 -> read the whole thing back, INCLUDING the name
+      //    and number, via confirm_details. The tool records what was read
+      //    back; the sentence is what the caller actually hears.
+      scriptedToolUse([
+        {
+          name: 'confirm_details',
+          input: { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+        },
+      ]),
+      // ...and the read-back is spoken on the NEXT model call, which ends the
+      // turn. That is what hands the caller their chance to correct it.
       scriptedText(
         'Значи, стоматолошки преглед кај д-р Ана Смилевска, утре, во десет и половина наутро, ' +
-          'на име Марко Петровски. Дали е точно?',
+          'на име Марко Петровски, на бројот нула седумдесет сто единаесет двесте дваесет и два. ' +
+          'Дали е точно?',
       ),
       // 4. Caller confirms -> only now is the tool called.
       scriptedToolUse([
@@ -138,9 +150,12 @@ describe('a full booking conversation in Macedonian', () => {
     ).toBe(true);
 
     const t3 = await handleTurn('conv_1', 'Десет и половина ми одговара.', ctx);
-    // The confirmation turn must NOT have booked anything yet.
-    expect(t3.toolCalls).toHaveLength(0);
+    // The confirmation turn reads the details back and books NOTHING.
+    expect(t3.toolCalls.map((c) => c.name)).toEqual(['confirm_details']);
     expect(t3.reply).toContain('Дали е точно');
+    // The number is read back too, not just the name — it is the field that
+    // ends up in the clinic's calendar and on the confirmation SMS.
+    expect(t3.reply).toContain('бројот');
     ctx.state = t3.state;
 
     const t4 = await handleTurn('conv_1', 'Да, точно.', ctx);
@@ -205,6 +220,117 @@ describe('a full booking conversation in Macedonian', () => {
     expect(result.toolCalls[0]!.error).toMatch(/slot_not_offered/);
     const rows = await db.select().from(appointments);
     expect(rows).toHaveLength(0);
+  });
+});
+
+/**
+ * The name and number gate.
+ *
+ * Enforced here rather than asked for in the prompt, for the same reason
+ * `slot_not_offered` is: recognition confidence cannot tell a correct booking
+ * from a confidently wrong one. A butchered Macedonian sentence scored 0.87
+ * against a correct 0.88, and Albanian returns a constant 0.79 no matter what
+ * is said — so "Petrovski" heard as "Petrovci" arrives looking exactly like a
+ * good transcription. The caller hearing their own details back is the only
+ * check that works, and it applies in every language because the failure is
+ * language-independent.
+ */
+describe('confirming the caller details before booking', () => {
+  const bookingInput = {
+    service_id: DEMO_IDS.services.checkup,
+    staff_id: DEMO_IDS.staff.ana,
+    starts_at: TUESDAY_1030.toISOString(),
+    customer_name: 'Марко Петровски',
+    customer_contact: '+38970111222',
+  };
+
+  /** Puts 10:30 into offeredSlots so the slot rule is not what refuses. */
+  async function withOfferedSlot(model: ScriptedLanguageModel): Promise<TurnContext> {
+    const ctx = makeCtx(model);
+    const availability = await executeTool('check_availability', checkTomorrow, ctx);
+    expect(availability.isError).toBe(false);
+    return ctx;
+  }
+
+  it('refuses a booking when the details were never confirmed', async () => {
+    const ctx = await withOfferedSlot(new ScriptedLanguageModel([]));
+    const result = await executeTool('book_appointment', bookingInput, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.output)).toMatch(/details_not_confirmed/);
+    expect(await db.select().from(appointments)).toHaveLength(0);
+  });
+
+  it('refuses when confirmed and booked in the same turn', async () => {
+    const ctx = await withOfferedSlot(new ScriptedLanguageModel([]));
+    await executeTool(
+      'confirm_details',
+      { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+      ctx,
+    );
+
+    /**
+     * The whole mechanism. Reading the details back and booking in one breath
+     * gives the caller no chance to correct them, so the turn counter — not
+     * the model's good intentions — is what forces the pause.
+     */
+    const result = await executeTool('book_appointment', bookingInput, ctx);
+    expect(JSON.stringify(result.output)).toMatch(/confirmation_too_soon/);
+    expect(await db.select().from(appointments)).toHaveLength(0);
+  });
+
+  it('refuses when the name changed after the caller confirmed', async () => {
+    const ctx = await withOfferedSlot(new ScriptedLanguageModel([]));
+    await executeTool(
+      'confirm_details',
+      { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+      ctx,
+    );
+    ctx.state.turnCount += 1;
+
+    // Confirmed one name, booked another. This is exactly the shape a
+    // mis-heard correction takes.
+    const result = await executeTool(
+      'book_appointment',
+      { ...bookingInput, customer_name: 'Марко Петровци' },
+      ctx,
+    );
+    expect(JSON.stringify(result.output)).toMatch(/details_changed_since_confirmation/);
+    expect(await db.select().from(appointments)).toHaveLength(0);
+  });
+
+  it('books once the caller has had a turn to answer', async () => {
+    const ctx = await withOfferedSlot(new ScriptedLanguageModel([]));
+    await executeTool(
+      'confirm_details',
+      { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+      ctx,
+    );
+    ctx.state.turnCount += 1;
+
+    const result = await executeTool('book_appointment', bookingInput, ctx);
+    expect(result.isError).toBe(false);
+    expect(await db.select().from(appointments)).toHaveLength(1);
+  });
+
+  it('accepts the number written differently from how it was read back', async () => {
+    const ctx = await withOfferedSlot(new ScriptedLanguageModel([]));
+    // Read back with spaces and no country code, booked in E.164. Same number;
+    // treating it as unconfirmed would make the gate fire on correct bookings,
+    // which is how a safety check gets switched off.
+    await executeTool(
+      'confirm_details',
+      { customer_name: 'марко петровски', customer_contact: '070 111 222' },
+      ctx,
+    );
+    ctx.state.turnCount += 1;
+
+    const result = await executeTool(
+      'book_appointment',
+      { ...bookingInput, customer_contact: '+38970111222' },
+      ctx,
+    );
+    expect(result.isError).toBe(false);
   });
 });
 
@@ -308,6 +434,18 @@ describe('two callers racing for the same slot', () => {
     const t1 = await handleTurn('conv_5', 'Утре наутро, ако може.', ctx);
     ctx.state = t1.state;
     expect((t1.toolCalls[0]!.output as { slots: unknown[] }).slots.length).toBeGreaterThan(0);
+
+    /**
+     * Clear the details gate before the race, so `slot_taken` is what this
+     * test measures. Without it the booking is refused for the other reason
+     * and the race is never reached — a green test proving nothing.
+     */
+    await executeTool(
+      'confirm_details',
+      { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+      ctx,
+    );
+    ctx.state.turnCount += 1;
 
     // The other caller wins the slot in between.
     await bookAppointment(db, {

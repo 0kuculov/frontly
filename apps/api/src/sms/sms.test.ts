@@ -177,6 +177,42 @@ describe('what the messages say', () => {
     expect(partsFor('Reminder: your appointment is tomorrow at 10:30.').encoding).toBe('GSM-7');
   });
 
+  /**
+   * The confirmation used to cost two parts in BOTH languages the product is
+   * for — 79 characters in Macedonian, 118 in Albanian — while English, the
+   * one language nobody here speaks, was the only one that fit.
+   *
+   * Albanian is the trap worth a test of its own: `ë` and lowercase `ç` are
+   * not in GSM-7, so Albanian is UCS-2 at 70 characters exactly like Cyrillic,
+   * and the Albanian template was the longest of the three.
+   */
+  it.each(['mk', 'sq', 'en'] as const)('keeps the %s confirmation inside one part', (language) => {
+    const local =
+      language === 'mk'
+        ? appointment
+        : { ...appointment, businessName: 'Dental Ohrid', staffName: 'Dr. Ana Smilevska' };
+    expect(partsFor(confirmationText(local, language)).parts).toBe(1);
+  });
+
+  it('gives up the staff name, then the weekday, rather than a second part', () => {
+    /**
+     * Composed to fit rather than written and hoped for. Tuning the wording to
+     * the length of "Дентал Охрид" would work for the demo clinic and break
+     * for the first customer with a longer name, so the message degrades in a
+     * defined order instead.
+     */
+    const long = {
+      ...appointment,
+      businessName: 'Приватна здравствена установа Дентал Охрид',
+    };
+    const text = confirmationText(long, 'mk');
+
+    expect(partsFor(text).parts).toBe(1);
+    expect(text).toContain('03.09 во 10:30');
+    expect(text).not.toContain('Ана'); // staff went first
+    expect(text).not.toContain('четврток'); // then the weekday
+  });
+
   it('caps the owner summary rather than sending a six-part report', () => {
     const tomorrow = Array.from({ length: 9 }, (_, i) => ({
       startsAt: new Date(`2026-09-04T0${i}:00:00.000Z`),

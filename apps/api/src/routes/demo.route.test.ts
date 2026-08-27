@@ -112,6 +112,54 @@ describe('the demo screen', () => {
     expect(body.resolvedWithoutOwnerPct).toBe(50);
   });
 
+  it('counts a caller who gave up as NOT resolved either', async () => {
+    /**
+     * This was the bug, and it was on the stage screen. "Resolved" was
+     * implemented as "any outcome except transferred", so every ABANDONED
+     * caller counted as a success — and abandoned was the most common outcome
+     * in the real history, which put the headline at 82% when the agent had
+     * completed 8 calls out of 39.
+     *
+     * A caller who gives up mid-conversation is the clearest failure there is.
+     * It simply is not a transfer.
+     */
+    await testDb.db.insert(conversations).values({
+      id: 'conv_demo_gave_up',
+      businessId: DEMO_IDS.business,
+      channel: 'voice',
+      externalId: 'CA_gave_up',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      outcome: 'abandoned',
+      transcript: [{ role: 'customer', text: 'Може ли…', atMs: 1000 }],
+    });
+
+    const body = (await app.inject({ method: 'GET', url: '/demo/metrics' })).json();
+    expect(body.resolvedWithoutOwnerPct).toBe(33);
+  });
+
+  it('ignores a caller who hung up during the greeting', async () => {
+    /**
+     * Connected, heard the greeting, gone in eleven seconds — a wrong number.
+     * Counting it against the agent measures the phone, not the receptionist,
+     * so it leaves the denominator entirely rather than scoring either way.
+     */
+    await testDb.db.insert(conversations).values({
+      id: 'conv_demo_wrong_number',
+      businessId: DEMO_IDS.business,
+      channel: 'voice',
+      externalId: 'CA_wrong_number',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      outcome: 'abandoned',
+      transcript: [],
+    });
+
+    const body = (await app.inject({ method: 'GET', url: '/demo/metrics' })).json();
+    // Unchanged by the extra row: still 1 booked out of 3 that talked.
+    expect(body.resolvedWithoutOwnerPct).toBe(33);
+  });
+
   it('resets the demo clinic and leaves every other business alone', async () => {
     // A real second business, because the foreign key is real: the point of
     // this test is that a reset cannot reach a paying customer's calendar.

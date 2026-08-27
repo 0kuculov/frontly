@@ -47,16 +47,27 @@ const DAY_NAMES: Record<Language, Record<string, string>> = {
   },
 };
 
-/** "вторник 27.08 во 14:00" — short, unambiguous, and read not spoken. */
-export function formatWhen(instant: Date, timeZone: string, language: Language): string {
+/**
+ * "вторник 27.08 во 14:00" — short, unambiguous, and read not spoken.
+ *
+ * `withDay: false` drops the weekday, which is the last thing given up when a
+ * message will not fit one part: the date is unambiguous on its own, and a
+ * second SMS costs more than the convenience is worth.
+ */
+export function formatWhen(
+  instant: Date,
+  timeZone: string,
+  language: Language,
+  withDay = true,
+): string {
   const p = toZonedParts(instant, timeZone);
-  const day = DAY_NAMES[language][p.dayKey] ?? '';
+  const day = withDay ? `${DAY_NAMES[language][p.dayKey] ?? ''} ` : '';
   const date = `${pad(p.day)}.${pad(p.month)}`;
   const time = `${pad(p.hour)}:${pad(p.minute)}`;
 
-  if (language === 'en') return `${day} ${date} at ${time}`;
-  if (language === 'sq') return `${day} ${date} në ${time}`;
-  return `${day} ${date} во ${time}`;
+  if (language === 'en') return `${day}${date} at ${time}`;
+  if (language === 'sq') return `${day}${date} në ${time}`;
+  return `${day}${date} во ${time}`;
 }
 
 function pad(n: number): string {
@@ -76,15 +87,68 @@ export function messageLanguage(languages: string[]): Language {
   return first === 'sq' || first === 'en' ? first : 'mk';
 }
 
+/**
+ * The confirmation, composed to fit ONE part rather than written and hoped for.
+ *
+ * This was measured, not guessed. The previous wording cost two parts in both
+ * languages that matter:
+ *
+ *   mk  79 chars UCS-2 → 2 parts
+ *   sq 118 chars UCS-2 → 2 parts
+ *   en 111 chars GSM-7 → 1 part
+ *
+ * Albanian was the worse of the two and the reason a fixed string cannot be
+ * trusted here: `ë` and lowercase `ç` are NOT in GSM-7, so Albanian is UCS-2 at
+ * **70 characters per part** exactly like Cyrillic — but the Albanian template
+ * was the longest of the three, written as though it had 160 to spend. English
+ * really does get 160 and is the only one that ever fit.
+ *
+ * At the rate Telnyx actually charged for a Macedonian mobile ($0.118/part,
+ * from the invoice, not a rate card) that second part cost more than carrying
+ * the entire phone call that produced it.
+ *
+ * So the message degrades in a defined order instead of being tuned to the
+ * length of "Дентал Охрид":
+ *
+ *   1. clinic, when, staff        — everything
+ *   2. drop the staff name        — the reminder already omits it
+ *   3. drop the weekday           — the date says it unambiguously
+ *
+ * Tuning the wording to one clinic would have worked for this demo and broken
+ * for the first customer with a longer name; the service name is gone from all
+ * three because the patient chose it thirty seconds ago and it is the least
+ * useful word in the message.
+ */
 export function confirmationText(appointment: DueAppointment, language: Language): string {
-  const when = formatWhen(appointment.startsAt, appointment.timezone, language);
+  const candidates = [
+    compose(appointment, language, { staff: true, day: true }),
+    compose(appointment, language, { staff: false, day: true }),
+    compose(appointment, language, { staff: false, day: false }),
+  ];
+
+  // The last one is sent even if it still overflows: a clinic name long enough
+  // to break it is a real case, and `partsFor()` logs what it actually cost.
+  return candidates.find((text) => partsFor(text).parts === 1) ?? candidates.at(-1)!;
+}
+
+function compose(
+  appointment: DueAppointment,
+  language: Language,
+  include: { staff: boolean; day: boolean },
+): string {
+  const when = formatWhen(appointment.startsAt, appointment.timezone, language, include.day);
+  const name = appointment.businessName;
+
   if (language === 'en') {
-    return `${appointment.businessName}: your appointment for ${appointment.serviceName} is confirmed, ${when}, with ${appointment.staffName}.`;
+    const who = include.staff ? `, with ${appointment.staffName}` : '';
+    return `Confirmed: ${name}, ${when}${who}.`;
   }
   if (language === 'sq') {
-    return `${appointment.businessName}: termini juaj për ${appointment.serviceName} është konfirmuar, ${when}, me ${appointment.staffName}.`;
+    const who = include.staff ? `, ${appointment.staffName}` : '';
+    return `Konfirmuar: ${name}, ${when}${who}.`;
   }
-  return `${appointment.businessName}: терминот е потврден, ${when}, кај ${appointment.staffName}.`;
+  const who = include.staff ? `, ${appointment.staffName}` : '';
+  return `Потврдено: ${name}, ${when}${who}.`;
 }
 
 /**

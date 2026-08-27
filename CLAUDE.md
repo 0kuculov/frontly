@@ -779,6 +779,113 @@ use the root `pnpm dev`.
 - **Inbound SMS is logged and not answered.** Replying would mean a second
   conversation channel, and a channel is a `packages/core` adapter (Phase 5),
   not something to improvise inside a webhook.
+- **Albanian is UCS-2 too, and that was missed for a whole phase.** `ë` and
+  lowercase `ç` are not in GSM-7, so an Albanian SMS is 70 characters per part
+  exactly like Cyrillic — but the Albanian confirmation was the *longest* of
+  the three templates (118 chars) because it had been written as though it had
+  160 to spend. Macedonian was 79. **English, the one language nobody here
+  speaks, was the only one that fit.** The 70-character rule was documented for
+  Cyrillic and then applied to Cyrillic only.
+- **`confirmationText()` now COMPOSES to fit one part instead of being a fixed
+  string.** It degrades in a defined order — full, then drop the staff name,
+  then drop the weekday — and returns the first form that is one part. Tuning
+  the wording to the length of "Дентал Охрид" would have worked for the demo
+  clinic and broken for the first customer with a longer name; a 41-character
+  clinic name now drops staff and weekday automatically and still fits.
+  Measured saving: **$0.118 per booking**, which is more than the entire
+  carrier cost of the call that produced it.
+
+### What a conversation costs, measured (`measure:cost`)
+
+`pnpm --filter @frontly/api measure:cost` counts tokens, TTS characters and SMS
+parts from a real booking conversation, and reads the **carrier's actual
+invoice** out of the Telnyx `usage_reports` API rather than applying a rate card
+to an assumption. A booked 3-minute Macedonian call is **$0.389**; unbooked,
+**$0.15**.
+
+- **The follow-up SMS is 61% of a booked conversation** ($0.236 at the invoiced
+  $0.118/part to a MK mobile). The phone call itself is the cheap part, and the
+  carrier — the thing that feels expensive — is 5%.
+- **Prompt caching halves the model cost**: $0.161 without, $0.075 with.
+- **Telnyx pricing and usage are both readable from the API** with the ordinary
+  key: `/v2/pricing?filter[service]=voice` for the rate card and
+  `/v2/usage_reports?product=…&dimensions=date&metrics=cost,billed_sec` for what
+  was actually charged. Note `dimensions`/`metrics` are **comma-separated**, not
+  `[]`-bracketed, and dates must be full ISO-8601. Three products add up to one
+  call and quoting only one is 3x low: `sip-trunking` (inbound minutes),
+  `call-control` (commands), `media-streaming` (the audio socket, billed on its
+  own shorter clock).
+- **A +389 toll-free number would cost $0.535/min inbound from a mobile**, per
+  Telnyx's own price sheet, against $0.07/min for a +389 *local* number. Every
+  Macedonian customer is on a mobile. That is ~$1.60 for a three-minute call —
+  four times the entire current cost of a booked conversation, carrier
+  included. **The pending toll-free request is the expensive choice; local is
+  the right one.** Worth deciding before the number is provisioned.
+- Anthropic and Azure rates are published list prices, in one `RATES` block,
+  overridable from the environment. Only the quantities are measured. Being
+  pedantic about that split is the point: the quantities are where every
+  surprise was.
+
+### Capacity: three concurrent callers, and it is not a code problem
+
+`pnpm --filter @frontly/api load:test` runs N whole calls at once;
+`pnpm --filter @frontly/api probe:concurrency` finds the ceiling.
+
+- **Azure refuses a fourth simultaneous transcription** —
+  `websocket error code: 4429`, "the number of parallel requests exceeded the
+  number of allowed concurrent transcriptions". Reproducible at exactly 3, with
+  an 8-second settle between rounds to rule out the probe's own teardown. Every
+  call holds one recognizer open for its whole duration, so **3 is a hard
+  ceiling on simultaneous callers**. The 4th hears the greeting and is never
+  heard back — it is not a timeout and no retry recovers it. Raising it is an
+  **Azure tier change, not a code change**, and no latency work matters above
+  this line.
+- **Below the ceiling the process is fine.** Three concurrent calls: frame
+  pacing p50 9ms late, p95 14ms, worst 55ms against a 20ms budget; heap ends
+  lower than it started.
+- **The double-booking guard was verified under real contention**, which is the
+  measurement worth the runtime. Every caller asks for the same slot; exactly
+  one gets it and the loser is told *"Извинете, тој термин штотуку го зазеде
+  некој друг"* — the race is resolved in conversation, not just by an `INSERT`
+  failing.
+- **The load test measures pacing, not latency, and says so.** Injected TTS
+  carries its own trailing silence, so caller-perceived latency from a
+  simulator is still a floor rather than an experience. Frame pacing is the
+  exception — that is real work on a real clock, so a late tick here is a late
+  tick on a live call.
+- **A load-test script can rot against a product change.** The first version
+  used four caller turns and booked nothing, reporting every call as
+  "abandoned", which looked exactly like a load failure. It was the Phase 6
+  confirmation gate correctly refusing to book before the caller had heard
+  their details read back. A fifth turn fixed it. `simulate:call` has the same
+  four-turn script and the same problem.
+
+### The stage metrics were wrong in the flattering direction
+
+Found while measuring cost, on the screen the audience actually sees:
+
+- **`resolvedWithoutOwnerPct` counted every ABANDONED caller as a success.** It
+  was implemented as "any outcome except `transferred`", and abandoned is the
+  most common outcome in the real history — so the headline read **82%** when
+  the agent had completed 8 calls out of 39. A caller who gives up is the
+  clearest failure there is; it simply is not a transfer.
+  - **`SELF_RESOLVED_OUTCOMES` already existed in `packages/shared` with the
+    correct list, and was imported by nobody.** Same shape as `ANTHROPIC_MODEL`
+    and `DEMO_RESET_TOKEN`: declared, believed, never read. Grep for unused
+    exports of this kind before trusting one.
+  - The denominator now excludes only an `abandoned` call with **no turns at
+    all** — someone who connected, heard the greeting and hung up in eleven
+    seconds, which is a third of the real history. A *transfer* counts however
+    empty its transcript is, because handing over IS the agent needing a human.
+    A test caught the first version scoring a silent transfer as 100%.
+- **`estimatedCostPerCallUsd` was 0.09, with a comment calling it
+  "deliberately conservative".** It was 4x under. Measuring put a call at $0.15
+  and a booked one at $0.39. Understating cost is the dangerous direction on a
+  stage, because the follow-up question is what exposes it.
+- **`avgCallerFacingMs` reads 11.0s and is a mean over 9 samples with one
+  37-second outlier** — the median is 6.3s. Both numbers are real; the mean is
+  the wrong statistic to put on a projector. Only 9 of 39 calls carry
+  `callerFacingMs` at all, because the field was added after most of them.
 
 ### Telnyx, and the Twilio assumptions that do not survive it
 

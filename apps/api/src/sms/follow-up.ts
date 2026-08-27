@@ -188,6 +188,43 @@ export async function confirmNow(
  * the season, and a summary that arrives at 19:00 half the year reads as
  * broken. So the cron fires hourly and this decides whose evening it is.
  */
+/**
+ * Today and tomorrow, on a business's own calendar.
+ *
+ * Exported so the manual `follow-up --dry-run` preview asks the same question
+ * the sweep does. It was inline here first, and a preview that recomputes its
+ * own day boundaries is a preview that will eventually disagree with what
+ * actually gets sent — on exactly the two days a year when it matters most.
+ *
+ * Day boundaries come off the calendar rather than from adding 86,400,000ms:
+ * `Europe/Skopje` changes offset twice a year, so a fixed-millisecond
+ * "tomorrow" lands an hour inside today or inside the day after. Stepping 26
+ * hours puts us unambiguously somewhere in tomorrow whichever way the clock
+ * moved, and the local date is then read back off the calendar.
+ */
+export function summaryWindow(
+  timezone: string,
+  now: Date,
+): { dayStart: Date; dayEnd: Date; tomorrowStart: Date; tomorrowEnd: Date } {
+  const today = toZonedParts(now, timezone);
+  const dayStart = startOfZonedDay(timezone, today.year, today.month, today.day);
+
+  const someTimeTomorrow = new Date(dayStart.getTime() + 26 * 3_600_000);
+  const t = toZonedParts(someTimeTomorrow, timezone);
+  const tomorrowStart = startOfZonedDay(timezone, t.year, t.month, t.day);
+
+  const someTimeAfter = new Date(tomorrowStart.getTime() + 26 * 3_600_000);
+  const a = toZonedParts(someTimeAfter, timezone);
+  const dayAfterStart = startOfZonedDay(timezone, a.year, a.month, a.day);
+
+  return {
+    dayStart,
+    dayEnd: new Date(tomorrowStart.getTime() - 1),
+    tomorrowStart,
+    tomorrowEnd: new Date(dayAfterStart.getTime() - 1),
+  };
+}
+
 export async function sendDailySummaries(
   deps: FollowUpDeps,
   { hour = 20 }: { hour?: number } = {},
@@ -214,27 +251,15 @@ export async function sendDailySummaries(
      * tomorrow whichever way the clock moved, and the local date is then read
      * back off the calendar.
      */
-    const today = toZonedParts(now, business.timezone);
-    const dayStart = startOfZonedDay(business.timezone, today.year, today.month, today.day);
-
-    const someTimeTomorrow = new Date(dayStart.getTime() + 26 * 3_600_000);
-    const t = toZonedParts(someTimeTomorrow, business.timezone);
-    const tomorrowStart = startOfZonedDay(business.timezone, t.year, t.month, t.day);
-
-    const someTimeAfter = new Date(tomorrowStart.getTime() + 26 * 3_600_000);
-    const a = toZonedParts(someTimeAfter, business.timezone);
-    const dayAfterStart = startOfZonedDay(business.timezone, a.year, a.month, a.day);
-
-    const dayEnd = new Date(tomorrowStart.getTime() - 1);
-    const tomorrowEnd = new Date(dayAfterStart.getTime() - 1);
+    const window = summaryWindow(business.timezone, now);
 
     const summary = await dailySummary(
       deps.db,
       business.id,
-      dayStart,
-      dayEnd,
-      tomorrowStart,
-      tomorrowEnd,
+      window.dayStart,
+      window.dayEnd,
+      window.tomorrowStart,
+      window.tomorrowEnd,
     );
     if (!summary) continue;
 

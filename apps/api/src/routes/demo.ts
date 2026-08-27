@@ -7,7 +7,7 @@ import {
   type Database,
 } from '@frontly/core';
 import type { OutgoingHttpHeaders } from 'node:http';
-import type { ServerEnv } from '@frontly/shared';
+import { SELF_RESOLVED_OUTCOMES, type ServerEnv } from '@frontly/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { callEvents } from '../demo/events.js';
@@ -24,13 +24,38 @@ import { callEvents } from '../demo/events.js';
 /**
  * What one call costs us, in USD.
  *
- * A judge will ask, and "I don't know" is a bad answer. Rounded from the
- * measured shape of a booking call: ~5 turns, Telnyx inbound at roughly
- * $0.0035/min, Azure STT ~$0.017/min and TTS per character, and a Sonnet turn
- * with the system prompt cached. Deliberately conservative — better to quote a
- * number we beat than one we miss.
+ * A judge will ask, and "I don't know" is a bad answer — but so is a number
+ * that does not survive the follow-up question. This was 0.09, described in
+ * this comment as "deliberately conservative", and it was nothing of the kind:
+ * measuring it properly put a three-minute call at 0.15 and a booked one at
+ * 0.39. Being 4x under is the dangerous direction to be wrong in on a stage.
+ *
+ * The figures below come from `pnpm --filter @frontly/api measure:cost`, which
+ * counts tokens, characters and SMS parts from a real conversation and reads
+ * the carrier's ACTUAL invoice out of the Telnyx usage API rather than
+ * applying a rate card to an assumption. Re-run it when anything changes.
  */
-const COST_PER_CALL_USD = 0.09;
+const MEASURED = {
+  /** Model + TTS. Paid once per conversation regardless of length. */
+  fixedUsd: 0.085,
+  /** Carrier + Azure STT. STT bills the whole call, silence included. */
+  perMinuteUsd: 0.0227,
+  /** Confirmation + reminder, both one part, at the invoiced $0.118/part. */
+  smsIfBookedUsd: 0.236,
+  /** Real calls in the history average close to three minutes. */
+  typicalMinutes: 3,
+};
+
+/**
+ * Blended across booked and unbooked calls, because most calls do not book and
+ * quoting only the booked figure would overstate the bill as badly as the old
+ * constant understated it. `bookedShare` is measured per request from the
+ * actual history rather than assumed.
+ */
+function costPerCallUsd(bookedShare: number): number {
+  const call = MEASURED.fixedUsd + MEASURED.perMinuteUsd * MEASURED.typicalMinutes;
+  return call + MEASURED.smsIfBookedUsd * bookedShare;
+}
 
 interface DemoRouteOptions {
   db: Database;
@@ -242,27 +267,61 @@ export async function registerDemoRoutes(
     ]);
 
     const voice = calls.filter((c) => c.channel === 'voice');
-    const finished = voice.filter((c) => c.endedAt !== null);
+
     /**
-     * "Resolved without the owner" means the agent finished the job: it booked,
-     * answered, or the caller left satisfied — anything that did NOT need a
-     * human. A transfer is the explicit failure of that, so it is the only
-     * outcome excluded.
+     * Calls that were actually a conversation.
+     *
+     * A third of the real history is somebody connecting, hearing the greeting
+     * and hanging up in eleven seconds — a wrong number, or one of us checking
+     * the line answers. That is not the agent failing to resolve anything, and
+     * leaving it in the denominator measures the phone rather than the
+     * receptionist.
+     *
+     * The exclusion is deliberately narrow: ONLY an abandoned call with no
+     * turns at all. A transfer counts however empty its transcript is, because
+     * handing over IS the agent needing a human — that is the precise thing
+     * this number measures, and excusing the silent ones would flatter it.
+     * A test caught exactly that: the first version of this filter scored a
+     * transferred call with an empty transcript as 100%.
      */
-    const resolved = finished.filter((c) => c.outcome !== null && c.outcome !== 'transferred');
+    const engaged = voice.filter((c) => {
+      if (c.endedAt === null) return false;
+      const silent = !Array.isArray(c.transcript) || c.transcript.length === 0;
+      return !(silent && c.outcome === 'abandoned');
+    });
+
+    /**
+     * "Resolved without the owner" means the agent finished the job.
+     *
+     * This used to be "any outcome except `transferred`", which quietly
+     * counted every ABANDONED caller as a success — and abandoned was the most
+     * common outcome in the history, so the headline read 82% when the agent
+     * had actually completed 8 calls out of 39. A caller who gives up is the
+     * clearest failure there is; it just is not a transfer.
+     *
+     * `SELF_RESOLVED_OUTCOMES` in `packages/shared` had the right list all
+     * along and was imported by nobody — the same way `ANTHROPIC_MODEL` and
+     * `DEMO_RESET_TOKEN` were declared and never read. A definition that is
+     * believed but not wired up is worse than none.
+     */
+    const resolved = engaged.filter(
+      (c) => c.outcome !== null && SELF_RESOLVED_OUTCOMES.includes(c.outcome),
+    );
+
+    const perCall = costPerCallUsd(engaged.length === 0 ? 0 : booked.length / engaged.length);
 
     return {
       callsHandled: voice.length,
       appointmentsBooked: booked.length,
       resolvedWithoutOwnerPct:
-        finished.length === 0 ? null : Math.round((resolved.length / finished.length) * 100),
+        engaged.length === 0 ? null : Math.round((resolved.length / engaged.length) * 100),
       /**
        * Null, never a made-up number, when nothing has been measured yet. A
        * zero here would read as "instant" on a screen behind a pitch.
        */
       avgCallerFacingMs: averageCallerFacingMs(voice),
-      estimatedCostPerCallUsd: COST_PER_CALL_USD,
-      estimatedCostTotalUsd: Number((voice.length * COST_PER_CALL_USD).toFixed(2)),
+      estimatedCostPerCallUsd: Number(perCall.toFixed(3)),
+      estimatedCostTotalUsd: Number((voice.length * perCall).toFixed(2)),
     };
   });
 

@@ -171,8 +171,8 @@ Import the repo, set **Root Directory** to `apps/web`, and add
 | 1 | Foundation — monorepo, schema, seed, env, health | **done** |
 | 2 | Conversation engine (`handleTurn`, tools, prompts) | **done** |
 | 3 | Voice channel (Telnyx Media Streaming ↔ Azure Speech) | **built** |
-| 4 | Owner dashboard | |
-| 5 | Chat channel (embeddable widget) | |
-| 6 | Follow-up (SMS confirmations, reminders, daily summary) | |
-| 7 | Demo & metrics | |
+| 4 | Owner dashboard | **done** |
+| 5 | Chat channel (embeddable widget) | **done** |
+| 6 | Follow-up (SMS confirmations, reminders, daily summary) | **done** |
+| 7 | Demo & metrics | **done** |
 | 8 | Albanian pass, README, full deploy | |

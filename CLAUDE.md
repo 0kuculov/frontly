@@ -614,6 +614,56 @@ round-trips intact and the shapes are right; that is not the same as sounding
 natural to someone from Tetovo. Worth 20 minutes with an Albanian speaker
 before claiming it on stage.
 
+### The chat widget (Phase 5), and what it proved about the boundary
+
+Adding a whole channel meant **one adapter in `apps/api` and zero lines in
+`packages/core`**. That was the test of the Phase 2 boundary and it held: the
+prompt, the tools, the booking rules and the confirmation gate all came for
+free through the same `handleTurn` the phone uses.
+
+- **Verified channel-agnostic, not assumed.** A real booking was completed
+  through the widget over HTTP against the live model, and `confirm_details`
+  fired on chat with no chat-specific code — the agent read the number back
+  digit by digit and waited before booking, exactly as it does on the phone.
+- **Session state is in memory, deliberately, and symmetric with voice.**
+  `CallSession` does the same. Both are ephemeral; the durable record is
+  written to `conversations` on every turn, so a restart loses the same thing
+  a dropped call does. Sessions are swept on touch rather than by a timer.
+- **CORS is `*` on `/chat/*` and `/widget.js` and nowhere else.** The widget
+  lives on the clinic's own website, whose origin this deployment cannot know.
+  It is set in an `onSend` hook because the global `@fastify/cors` has already
+  staged `APP_ORIGIN` by then and the later write wins. No credentials are
+  involved, so `*` is honest rather than lazy.
+- **Closed Shadow DOM.** A widget pasted onto someone else's page inherits
+  their CSS otherwise, and a clinic stylesheet will happily restyle a `button`
+  into something unusable. `/widget-demo` is a page with deliberately hostile
+  styles (Comic Sans, magenta 28px buttons) that exists to prove the boundary
+  holds — if the widget looks like the page around it, Shadow DOM is broken.
+- **Two caps, because the endpoint is public and every message costs tokens:**
+  1000 characters per message and 40 messages per session.
+- **Switching language starts a NEW conversation.** The engine locks a
+  conversation to one language, and half a transcript in Macedonian followed
+  by half in Albanian is worse than starting over.
+- **NOT verified in a real browser.** The script is valid JavaScript, serves
+  with the right headers and is 10.7KB, but nothing has rendered it —
+  Playwright is not installed and adding ~400MB of browsers before the
+  deadline was not worth it. Open `/widget-demo` and look.
+
+### `pnpm --filter @frontly/api dev` alone serves a STALE core
+
+`apps/api` resolves `@frontly/core` to `packages/core/dist`, never to `src`.
+`pnpm dev` at the root runs core's `tsc -b --watch` alongside, so the two stay
+in step — but starting only the API filter does not, and the API then runs
+whatever core was last built.
+
+This is not theoretical: a booking went through the chat widget **without the
+confirmation gate firing**, because the gate existed in `src` and the running
+API was serving a `dist` from thirty minutes earlier. `pnpm test` and
+`pnpm typecheck` both pass in that state, because they run against `src`.
+Production is safe — Render runs `pnpm build` on every deploy — but a local
+"it does not do the thing I just wrote" is this, every time. Rebuild core, or
+use the root `pnpm dev`.
+
 ### The dashboard (Phase 4)
 
 - **The dashboard is a CLIENT of the API, not a second copy of it.** That

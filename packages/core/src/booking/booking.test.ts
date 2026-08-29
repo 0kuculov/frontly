@@ -253,6 +253,41 @@ describe('cancelling and rescheduling', () => {
     expect(moved.endsAt.getTime() - moved.startsAt.getTime()).toBe(30 * 60_000);
   });
 
+  it('moves the caller’s appointment by number alone', async () => {
+    /**
+     * The whole point: a caller on the phone has never seen an appointment id.
+     * `appointmentId` used to be REQUIRED here while `cancel` had a number
+     * fallback, which made rescheduling unreachable on a real call — the model
+     * could only refuse or invent an id for the database to reject.
+     */
+    await seedOne();
+    const newTime = fromZonedWallClock(SKOPJE, 2026, 9, 8, 14, 0);
+    const moved = await rescheduleAppointment(db, {
+      business, customerPhone: '070 111 222', newStartsAt: newTime, now: NOW,
+    });
+    expect(moved.startsAt.getTime()).toBe(newTime.getTime());
+  });
+
+  it('will not let one caller move another’s appointment by id', async () => {
+    const created = await seedOne();
+    const newTime = fromZonedWallClock(SKOPJE, 2026, 9, 8, 14, 0);
+    await expect(
+      rescheduleAppointment(db, {
+        business, appointmentId: created.id, customerPhone: '+38975999888',
+        newStartsAt: newTime, now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'contact_mismatch' });
+  });
+
+  it('says so when a number has nothing upcoming to move', async () => {
+    const newTime = fromZonedWallClock(SKOPJE, 2026, 9, 8, 14, 0);
+    await expect(
+      rescheduleAppointment(db, {
+        business, customerPhone: '+38970000000', newStartsAt: newTime, now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
   it('refuses to reschedule onto an occupied slot', async () => {
     const first = await seedOne();
     const second = fromZonedWallClock(SKOPJE, 2026, 9, 8, 14, 0);

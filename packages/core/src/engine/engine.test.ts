@@ -354,7 +354,14 @@ describe('rescheduling', () => {
       scriptedToolUse([
         {
           name: 'reschedule_appointment',
-          input: { appointment_id: existing.id, new_starts_at: TUESDAY_1400.toISOString() },
+          // The number is required now: a caller does not know an appointment
+          // id, so it is what resolves "my appointment" — and it doubles as
+          // the check that an id alone cannot move someone else's booking.
+          input: {
+            appointment_id: existing.id,
+            customer_contact: '+38970111222',
+            new_starts_at: TUESDAY_1400.toISOString(),
+          },
         },
       ]),
       scriptedText('Преместено е за утре, во два часот попладне.'),

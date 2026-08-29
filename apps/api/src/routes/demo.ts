@@ -209,6 +209,14 @@ export async function registerDemoRoutes(
    * projector comes back and replays what it missed.
    */
   app.get('/demo/stream', (request, reply) => {
+    /**
+     * Tell Fastify this response is ours now.
+     *
+     * The body is written straight to the socket and never ended, so without
+     * this Fastify is still waiting to serialise a reply that will never come.
+     */
+    reply.hijack();
+
     reply.raw.writeHead(200, {
       ...corsHeaders(reply.getHeaders()),
       'Content-Type': 'text/event-stream',
@@ -218,6 +226,19 @@ export async function registerDemoRoutes(
       // into uselessness otherwise.
       'X-Accel-Buffering': 'no',
     });
+
+    /**
+     * Push the head onto the wire NOW.
+     *
+     * `writeHead` only stages it: Node sends the header block with the first
+     * body chunk. On an idle demo screen the first chunk is the 15s heartbeat,
+     * so the browser sat in CONNECTING for fifteen seconds with no `onopen`
+     * and the transcript stayed blank — measured as *zero bytes* on a raw
+     * socket for four seconds. The ready comment is belt and braces: it also
+     * gives any intermediary proxy something to forward immediately.
+     */
+    reply.raw.flushHeaders();
+    reply.raw.write(': ready\n\n');
 
     const write = (id: number, data: unknown): void => {
       reply.raw.write(`id: ${id}\ndata: ${JSON.stringify(data)}\n\n`);

@@ -42,7 +42,12 @@ export const cancelAppointmentInput = z.object({
 });
 
 export const rescheduleAppointmentInput = z.object({
-  appointment_id: z.string().min(1),
+  /**
+   * Nullable for the same reason `cancel_appointment`'s is: a caller on the
+   * phone has never seen an appointment id. The number resolves it.
+   */
+  appointment_id: z.string().nullable().optional(),
+  customer_contact: z.string().min(1),
   new_starts_at: z.string().min(1),
 });
 
@@ -138,10 +143,14 @@ export function buildTools(options: BuildToolsOptions = {}): Anthropic.Tool[] {
       input_schema: {
         type: 'object',
         properties: {
-          appointment_id: { type: 'string' },
+          customer_contact: { type: 'string', description: 'Телефонскиот број на пациентот.' },
+          appointment_id: {
+            type: ['string', 'null'],
+            description: 'ID на терминот ако е познато, инаку null.',
+          },
           new_starts_at: { type: 'string', description: instantDescription },
         },
-        required: ['appointment_id', 'new_starts_at'],
+        required: ['customer_contact', 'appointment_id', 'new_starts_at'],
         additionalProperties: false,
       },
     }),

@@ -354,4 +354,40 @@ describe('the event stream over a real socket', () => {
       controller.abort();
     }
   });
+
+  it('opens the stream immediately, with nothing to replay', async () => {
+    /**
+     * `writeHead` only STAGES the head — Node puts it on the wire with the
+     * first body chunk. On an idle screen the first chunk was the 15-second
+     * heartbeat, so a browser sat in CONNECTING with no `onopen` and the
+     * transcript stayed blank. Measured on a raw socket: zero bytes in four
+     * seconds.
+     *
+     * The test above did not catch it, and could not: it runs after other
+     * tests have pushed onto the module-level event bus, so a replay write
+     * flushed the head by accident. What is asserted here is the immediate
+     * comment line, which does not depend on the bus having anything in it.
+     */
+    // The test above already bound a port; Fastify refuses to listen twice.
+    const bound = app.server.address();
+    const address =
+      typeof bound === 'object' && bound !== null
+        ? `http://127.0.0.1:${bound.port}`
+        : await app.listen({ port: 0, host: '127.0.0.1' });
+    const controller = new AbortController();
+
+    try {
+      const response = await fetch(`${address}/demo/stream`, {
+        signal: controller.signal,
+      });
+      const reader = response.body!.getReader();
+      const first = await Promise.race([
+        reader.read().then((r) => new TextDecoder().decode(r.value)),
+        new Promise<string>((resolve) => setTimeout(() => resolve('TIMED OUT'), 3000)),
+      ]);
+      expect(first).toContain(': ready');
+    } finally {
+      controller.abort();
+    }
+  });
 });

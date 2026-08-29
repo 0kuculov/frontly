@@ -197,9 +197,19 @@ export async function cancelAppointment(db: Database, input: CancelInput): Promi
 
 export interface RescheduleInput {
   business: Business;
-  appointmentId: string;
+  /**
+   * Optional, because a phone caller does not know it.
+   *
+   * This used to be required, which made rescheduling unreachable on a real
+   * call: the only way to learn an appointment id is to have booked through
+   * an interface that showed you one, and a caller has not. The model was
+   * left either refusing or inventing an id for the database to reject.
+   * Omit it and the caller's number resolves their next appointment, exactly
+   * as `cancelAppointment` has always done.
+   */
+  appointmentId?: string | undefined;
   newStartsAt: Date;
-  /** Optional ownership check, same reasoning as cancellation. */
+  /** Ownership check, and the lookup key when there is no id. */
   customerPhone?: string | undefined;
   /** Move to a different staff member as part of the reschedule. */
   newStaffId?: string | undefined;
@@ -213,7 +223,6 @@ export async function rescheduleAppointment(
 ): Promise<Appointment> {
   const {
     business,
-    appointmentId,
     newStartsAt,
     now = new Date(),
     minimumNoticeMinutes = DEFAULT_MINIMUM_NOTICE_MINUTES,
@@ -224,6 +233,26 @@ export async function rescheduleAppointment(
   }
   if (newStartsAt.getTime() < now.getTime() + minimumNoticeMinutes * 60_000) {
     throw new BookingError('in_the_past', 'That time has already passed or is too soon');
+  }
+
+  /**
+   * Resolve "my appointment" from the caller's number when no id was given.
+   *
+   * Done before the transaction rather than inside it: the update below
+   * re-checks status and ownership anyway, so a row that changes in between
+   * is caught there rather than silently rescheduled.
+   */
+  let appointmentId = input.appointmentId;
+  if (!appointmentId) {
+    if (!input.customerPhone?.trim()) {
+      throw new BookingError('invalid_input', 'A reschedule needs an id or the caller’s number');
+    }
+    const upcoming = await findUpcomingByPhone(db, business.id, input.customerPhone, now);
+    const next = upcoming[0];
+    if (!next) {
+      throw new BookingError('not_found', 'No upcoming appointment found for that number');
+    }
+    appointmentId = next.id;
   }
 
   try {

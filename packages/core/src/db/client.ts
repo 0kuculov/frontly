@@ -1,7 +1,7 @@
 import { createClient, type Client, type Config } from '@libsql/client';
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
 import * as schema from './schema.js';
-import { loadRootEnv, resolveDatabaseUrl } from './paths.js';
+import { resolveDatabaseUrl } from './paths.js';
 
 export type Database = LibSQLDatabase<typeof schema> & { $client: Client };
 
@@ -45,23 +45,3 @@ export async function pingDb(db: Database): Promise<void> {
   await db.$client.execute('select 1');
 }
 
-let singleton: Database | undefined;
-
-/**
- * Process-wide database handle, built from DATABASE_URL. Tests and scripts
- * that need isolation should call createDb() directly instead.
- */
-export function getDb(): Database {
-  if (singleton) return singleton;
-  loadRootEnv();
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL is not set - copy .env.example to .env');
-  }
-  singleton = createDb({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
-  return singleton;
-}
-
-export function resetDbSingleton(): void {
-  singleton = undefined;
-}

@@ -322,7 +322,10 @@ async function runRescheduleAppointment(
 
   const updated = await rescheduleAppointment(ctx.db, {
     business: ctx.business,
-    appointmentId: input.appointment_id,
+    appointmentId: input.appointment_id ?? undefined,
+    // Doubles as the ownership check: an id alone must not move someone
+    // else's appointment, exactly as it must not cancel one.
+    customerPhone: input.customer_contact,
     newStartsAt,
     now,
   });

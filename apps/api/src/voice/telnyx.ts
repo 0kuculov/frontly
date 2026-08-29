@@ -1,4 +1,4 @@
-import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'node:crypto';
+import { createPublicKey, verify as verifySignature } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import type {
   AnswerOptions,
@@ -446,11 +446,4 @@ function describe(text: string): string {
     /* not JSON */
   }
   return text.slice(0, 200);
-}
-
-/** Exported for the signature test, which must compare without leaking timing. */
-export function safeEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
 }

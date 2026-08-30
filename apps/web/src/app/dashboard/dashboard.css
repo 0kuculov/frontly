@@ -866,6 +866,13 @@ tbody tr:hover {
   bottom: 0;
   width: min(26rem, 100vw);
   overflow-y: auto;
+  /* Scrolling to the end of the sheet must not start scrolling the calendar
+     behind it — the classic drawer bug, one property. */
+  overscroll-behavior: contain;
+  /* Full-bleed against the edges of the device, so a notch or a home bar does
+     not sit on top of the first field or the submit button. */
+  padding-right: max(1.5rem, env(safe-area-inset-right));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   background: var(--card);
   border-left: 1px solid var(--rule-strong);
   padding: 1.5rem;
@@ -1104,4 +1111,38 @@ tbody tr:hover {
   font-size: 0.75rem;
   color: var(--booked);
   white-space: nowrap;
+}
+
+/*
+ * No 300ms wait on a tap.
+ *
+ * Mobile browsers hold every tap to see whether it becomes a double-tap zoom.
+ * On controls that is dead time the owner reads as a slow app, and none of
+ * these are things anyone zooms into. Page text is untouched, so pinch zoom —
+ * which some people need to read at all — still works everywhere.
+ */
+.app button,
+.app a,
+.app select,
+.app input,
+.app label {
+  touch-action: manipulation;
+}
+
+/*
+ * Numbers that get compared, in columns that line up.
+ *
+ * Golos Text has proportional figures, so "11" is narrower than "88" and a
+ * column of counts wobbles. Tabular figures are what a table of numbers is
+ * for.
+ */
+.figure-value,
+td.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Headings break where a person would break them, not where the box ends. */
+h1,
+h2 {
+  text-wrap: balance;
 }

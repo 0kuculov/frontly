@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createAppointment, loadSlots } from './actions';
 import type { CalendarService, CalendarStaff, FreeSlot } from '../../lib/api';
@@ -161,6 +161,23 @@ export function BookingForm({
     : (slots ?? []).filter(
         (slot, index, all) => all.findIndex((s) => s.startsAt === slot.startsAt) === index,
       );
+
+  /**
+   * Escape closes it.
+   *
+   * A panel that covers a third of the screen and can only be dismissed by
+   * finding a specific button is a panel somebody gets stuck in. The listener
+   * only exists while the sheet is open, so it can never swallow an Escape
+   * meant for something else.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   function refreshSlots(next: { serviceId?: string; staffId?: string; date?: string }) {
     const query = {
@@ -328,7 +345,7 @@ export function BookingForm({
         </label>
         <label>
           <span>{t.phone}</span>
-          <input name="customerPhone" required inputMode="tel" autoComplete="off" />
+          <input name="customerPhone" type="tel" required inputMode="tel" autoComplete="off" />
         </label>
       </div>
 

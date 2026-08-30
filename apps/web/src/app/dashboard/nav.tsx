@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LANGS, type Lang } from '../../lib/lang';
-import { switchLanguage } from './actions';
+import { switchLanguage } from '../lang-action';
 
 /**
  * The only client components in the dashboard, and both for the same reason:

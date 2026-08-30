@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getSessionToken } from '../lib/session';
+import { getLang, getSessionToken } from '../lib/session';
+import { LANDING } from './landing-copy';
+import { LangSwitch } from './lang-switch';
 import { Logo, Wordmark } from './logo';
 import './landing.css';
 
@@ -13,6 +15,10 @@ import './landing.css';
  * ring it. The primary call to action is the actual phone number, because a
  * phone product that asks you to read about it instead of calling it has
  * already lost the argument.
+ *
+ * In three languages, from the same cookie the dashboard uses, because the
+ * judge who wants English and the owner from Tetovo who wants Albanian are
+ * both on this page before they are anywhere else.
  *
  * No signup form. See the note on the sign-in card.
  */
@@ -30,6 +36,10 @@ const PHONE_HREF = 'tel:+16193497599';
  * A simulated screenshot built out of divs is the oldest tell there is, and
  * this is the actual product output, which is more convincing than a picture
  * of it would be.
+ *
+ * Never translated, in any language. It is what was said; a "real call" that
+ * changes language per visitor is a lie about the one thing on this page that
+ * proves the product works. The label above it says which language it is in.
  */
 const EXCHANGE = [
   { who: 'caller', text: 'Добар ден, сакам да закажам стоматолошки преглед.' },
@@ -57,18 +67,22 @@ export default async function LandingPage() {
   // Someone who is already signed in wants the dashboard, not the pitch.
   if (await getSessionToken()) redirect('/dashboard');
 
+  const lang = await getLang();
+  const c = LANDING[lang];
+
   return (
-    <div className="landing">
+    <div className="landing" lang={lang}>
       <header className="lp-nav">
         <Link href="/" className="lp-brand" aria-label="Frontly">
           <Wordmark size={24} />
         </Link>
         <nav>
-          <a href={PHONE_HREF} className="lp-nav-phone">
+          <LangSwitch lang={lang} />
+          <a href={PHONE_HREF} className="lp-nav-phone" aria-label={c.navPhone}>
             {PHONE_DISPLAY}
           </a>
           <Link href="/login" className="lp-nav-signin">
-            Најава
+            {c.navSignIn}
           </Link>
         </nav>
       </header>
@@ -77,28 +91,27 @@ export default async function LandingPage() {
         <section className="lp-hero">
           <div className="lp-hero-copy">
             <h1>
-              Вашата ординација
+              {c.headline[0]}
               <br />
-              не пропушта повик.
+              {c.headline[1]}
             </h1>
-            <p className="lp-lede">
-              Frontly се јавува, разбира македонски и закажува во вашиот календар.
-              Секој ден, во секое време.
-            </p>
+            <p className="lp-lede">{c.lede}</p>
             <div className="lp-cta">
               <a href={PHONE_HREF} className="lp-btn lp-btn-primary">
-                Јавете се и пробајте
+                {c.cta}
               </a>
               <span className="lp-cta-number">{PHONE_DISPLAY}</span>
             </div>
           </div>
 
-          <div className="lp-exchange" aria-label="Пример од вистински разговор">
+          <div className="lp-exchange" aria-label={c.exchangeLabel}>
             <div className="lp-exchange-head">
               <span className="lp-live" aria-hidden />
-              Вистински повик
+              {c.exchangeLabel}
             </div>
-            <ol>
+            {/* `lang="mk"` so a screen reader does not read Cyrillic with an
+                English voice when the page is in English. */}
+            <ol lang="mk">
               {EXCHANGE.map((line, index) => (
                 <li key={index} data-who={line.who}>
                   <span className="lp-bubble">{line.text}</span>
@@ -117,53 +130,36 @@ export default async function LandingPage() {
           left to right IS the sequence, so no numbering is needed.
         */}
         <section className="lp-band">
-          <h2>Ѕвони. Одговара. Закажува.</h2>
+          <h2>{c.bandTitle}</h2>
           <div className="lp-band-grid">
-            <p>
-              <strong>Се јавува на првото ѕвонење</strong>, дури и кога сте со
-              пациент, во сабота или во три наутро.
-            </p>
-            <p>
-              <strong>Проверува вистинска слободна термина</strong> според работното
-              време, услугата и кој доктор ја работи.
-            </p>
-            <p>
-              <strong>Го прочитува бројот назад</strong> цифра по цифра и чека
-              потврда пред да закажe.
-            </p>
+            {c.band.map(([strong, rest], index) => (
+              <p key={index}>
+                <strong>{strong}</strong>
+                {rest}
+              </p>
+            ))}
           </div>
         </section>
 
         <section className="lp-facts">
           <dl>
-            <div>
-              <dt>Јазици</dt>
-              <dd>3</dd>
-              <p>Македонски, албански, англиски.</p>
-            </div>
-            <div>
-              <dt>Достапност</dt>
-              <dd>24/7</dd>
-              <p>Без пропуштен повик и без говорна пошта.</p>
-            </div>
-            <div>
-              <dt>Цена по разговор</dt>
-              <dd>$0.39</dd>
-              <p>Измерено на вистински повик, не проценето.</p>
-            </div>
+            {c.facts.map(([label, value, note]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+                <p>{note}</p>
+              </div>
+            ))}
           </dl>
         </section>
 
         <section className="lp-signin">
           <div className="lp-signin-card">
             <Logo size={30} />
-            <h2>Веќе имате ординација кај нас?</h2>
-            <p>
-              Влезете во таблата за да ги видите повиците, термините и што кажал
-              секој пациент.
-            </p>
+            <h2>{c.signInTitle}</h2>
+            <p>{c.signInBody}</p>
             <Link href="/login" className="lp-btn lp-btn-primary">
-              Најава
+              {c.signInCta}
             </Link>
             {/*
               No public sign-up, and the reason is specific rather than
@@ -173,16 +169,14 @@ export default async function LandingPage() {
               ring. New clinics are set up by hand until numbers are assigned
               per business.
             */}
-            <p className="lp-fine">
-              Нова ординација? Јавете се на {PHONE_DISPLAY} и ве поставуваме ние.
-            </p>
+            <p className="lp-fine">{c.newClinic(PHONE_DISPLAY)}</p>
           </div>
         </section>
       </main>
 
       <footer className="lp-foot">
         <Wordmark size={20} />
-        <p>Виртуелен рецепционер за мали ординации во Северна Македонија.</p>
+        <p>{c.footer}</p>
       </footer>
     </div>
   );

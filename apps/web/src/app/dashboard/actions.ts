@@ -3,19 +3,12 @@
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { apiGet, apiPatch, apiPost, type FreeSlot } from '../../lib/api';
-import { clearSession, setLang, type Lang } from '../../lib/session';
+import { clearSession } from '../../lib/session';
 
 /** Sign out. The API token simply expires; forgetting it here is the logout. */
 export async function signOut(): Promise<void> {
   await clearSession();
   redirect('/login');
-}
-
-export async function switchLanguage(lang: Lang): Promise<void> {
-  await setLang(lang);
-  // Every page is server-rendered in one language, so a switch has to re-render
-  // the whole tree rather than swapping strings on the client.
-  revalidatePath('/', 'layout');
 }
 
 export interface SaveState {

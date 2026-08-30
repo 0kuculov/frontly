@@ -112,6 +112,53 @@
   white-space: nowrap; /* the nav stays on one line at every width */
 }
 
+/*
+ * The language switch: a segmented control, quiet enough to lose to the sign
+ * in button beside it.
+ *
+ * It is the FIRST thing in the nav group rather than the last, because the
+ * person who needs it needs it before they can read anything else on the
+ * page — putting it after two controls they cannot read would be a joke at
+ * their expense.
+ */
+.lp-lang {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.lp-lang button {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.375rem 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.lp-lang button + button {
+  border-left: 1px solid var(--rule);
+}
+
+.lp-lang button:hover {
+  color: var(--ink);
+}
+
+.lp-lang button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.lp-lang button:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
 .lp-nav-phone {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 0.9rem;

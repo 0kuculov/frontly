@@ -46,11 +46,9 @@
   letter-spacing: -0.02em;
 }
 
-.brand-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--signal);
+.login-brand svg {
+  color: var(--signal);
+  --logo-knockout: var(--card);
   flex: none;
 }
 

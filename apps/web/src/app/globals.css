@@ -1,14 +1,33 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand-50: #ecfeff;
-  --color-brand-500: #06b6d4;
-  --color-brand-600: #0891b2;
-  --color-brand-700: #0e7490;
-  --color-brand-900: #164e63;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+/*
+ * The only global rules. Every screen brings its own stylesheet — landing.css,
+ * dashboard.css, demo.css, login.css — because they are three scales of one
+ * identity rather than one layout with variations.
+ *
+ * What used to be here was a `@theme` block declaring a cyan brand palette
+ * (--color-brand-500: #06b6d4) and Inter as the sans. Both were left over from
+ * before the design existed, both contradicted what actually ships (signal
+ * blue #1b34ff, Golos Text), and grep found NOT ONE use of either. Same shape
+ * as ANTHROPIC_MODEL and SELF_RESOLVED_OUTCOMES: declared, believed, read by
+ * nobody. Deleted rather than corrected — a token nothing uses is not a token.
+ */
+
+html,
+body {
+  height: 100%;
 }
 
-html, body {
-  height: 100%;
+/*
+ * Light, and say so.
+ *
+ * Every surface in this product is light by deliberate choice, but the browser
+ * does not know that: on a laptop set to dark mode, `<select>` and
+ * `<input type="date">` render as native DARK controls inside a white card,
+ * and the scrollbar comes back dark too. The booking form is built from
+ * exactly those two controls, so this is one line between a designed form and
+ * a broken-looking one on somebody else's machine.
+ */
+:root {
+  color-scheme: light;
 }

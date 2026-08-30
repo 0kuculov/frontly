@@ -34,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="app">
+    <div className="app" lang={lang}>
       <aside className="side">
         {/*
           The mark, then the clinic. Which product this is, then whose data is

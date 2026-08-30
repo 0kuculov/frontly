@@ -3,6 +3,7 @@ import { apiLogin } from '../../lib/api';
 import { getLang, getSessionToken, setSessionToken } from '../../lib/session';
 import { translator } from '../../lib/i18n';
 import './login.css';
+import { Logo } from '../logo';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,7 @@ export default async function LoginPage({
     <main className="login">
       <div className="login-card">
         <div className="login-brand">
-          <span className="brand-dot" aria-hidden />
+          <Logo size={22} />
           <span>Frontly</span>
         </div>
         <p className="login-tagline">{t('signInTagline')}</p>

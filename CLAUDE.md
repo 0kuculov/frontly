@@ -17,8 +17,8 @@ Deadline: **10 September 2026** — incubator application + live stage demo.
 | Database | Turso, `libsql://frontly-0kuculov.aws-eu-west-1.turso.io` (migrated + seeded) |
 | Repo | https://github.com/0kuculov/frontly (`main` auto-deploys to Render) |
 | Phone | **+1 619 349 7599** (Telnyx, US local). A +389 toll-free is requested and pending. |
-| Dashboard | not deployed yet (Phase 4 → Vercel) |
-| Demo screen | `/demo` in `apps/web`. Needs `APP_ORIGIN` on Render to include its origin, or CORS blocks every request and the screen stays empty. |
+| Dashboard | https://frontly-web.vercel.app — Vercel, root directory `apps/web`, no build overrides. `frontly.vercel.app` belongs to somebody else. |
+| Demo screen | `/demo` on that domain. Needs `APP_ORIGIN` on Render to include its origin, or CORS blocks every request and the screen stays empty. |
 
 ## Commands
 

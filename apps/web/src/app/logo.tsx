@@ -1,24 +1,34 @@
 /**
- * The Frontly mark.
+ * The Frontly mark: an F that answers.
  *
- * A robot that answers the phone. The head is one filled shape with the face
- * knocked out of it, plus an antenna and two side tabs — solid blocks rather
- * than strokes, because the mark has to survive a 20px browser tab, and three
- * thin lines in a 20px square are a texture, not a symbol. The first version
- * of this file learned that the hard way with a handset arc.
+ * Built as ONE closed path, not a set of strokes. This file has already
+ * learned that lesson twice — an outlined bubble with a handset arc was mush
+ * at 24px, and three thin lines in a small square are a texture rather than a
+ * symbol. A single solid mass survives a browser tab.
  *
- * Drawn by hand, which is normally the wrong answer: icon glyphs come from a
- * library. A brand mark is the documented exception, and this one is five
- * primitives rather than a traced illustration, so it scales from that tab to
- * 200px on a projector without redrawing.
+ * The construction, so it can be redrawn rather than traced:
  *
- * `currentColor` throughout, so the mark inherits whatever it sits on: signal
- * blue in the nav, white on a dark panel, ink on paper. The knockouts read the
- * surface behind them from `--logo-knockout`, which is why one asset covers
- * every placement instead of a light and a dark variant drifting apart.
+ *   - A geometric F, leaned 6° from a pivot on the baseline. Six degrees, not
+ *     the twelve of a display italic: the product answers a phone instantly,
+ *     which is composure, not racing. A steeper lean puts it straight back
+ *     into the logistics-and-fintech silhouette this was drawn to avoid.
+ *   - The MIDDLE arm runs longer than the top one and ends in a wedge whose
+ *     tip drops to the lower right — the tail of a speech bubble, and the only
+ *     thing in the mark that is not a rectangle. Read fast it is an F; read
+ *     once more, something in it spoke.
+ *   - The foot is cut flat. Logistics marks trail backwards into speed lines
+ *     because they are about travel. This one arrives and stops.
+ *
+ * `currentColor` throughout, so one asset covers every placement: cobalt in
+ * the nav, paper on a dark panel, ink on white. Monochrome by construction —
+ * there is no gradient version, because a mark that needs one is not a mark.
  */
+
+/** The single path, leaned and balanced inside a 32-unit box. */
+const F_PATH =
+  'M8.5 4 L25 4 L24.4 9.6 L13.9 9.6 L13.5 14.2 L25 14.2 L24.4 19.8 L22.8 24.8 L20.6 19.8 L12.9 19.8 L12 28 L6 28 Z';
+
 export function Logo({ size = 28, title }: { size?: number; title?: string }) {
-  const knockout = 'var(--logo-knockout, #fff)';
   return (
     <svg
       width={size}
@@ -30,28 +40,28 @@ export function Logo({ size = 28, title }: { size?: number; title?: string }) {
       focusable="false"
     >
       {title ? <title>{title}</title> : null}
-      {/* Antenna: the one detail that makes a rounded square read as a head. */}
-      <circle cx="16" cy="3.1" r="2.3" fill="currentColor" />
-      <rect x="14.9" y="4.4" width="2.2" height="4.2" fill="currentColor" />
-      {/* Ear tabs, kept as blocks so they hold their shape when tiny. */}
-      <rect x="0.5" y="14" width="3.4" height="6.4" rx="1.4" fill="currentColor" />
-      <rect x="28.1" y="14" width="3.4" height="6.4" rx="1.4" fill="currentColor" />
-      {/* The head. */}
-      <rect x="3.4" y="7.6" width="25.2" height="21" rx="6.6" fill="currentColor" />
-      {/* The face, knocked out. Equal eyes: a robot looks straight at you. */}
-      <circle cx="11.6" cy="16.4" r="2.75" fill={knockout} />
-      <circle cx="20.4" cy="16.4" r="2.75" fill={knockout} />
-      <rect x="11" y="22" width="10" height="2.4" rx="1.2" fill={knockout} />
+      <path d={F_PATH} fill="currentColor" />
     </svg>
   );
 }
 
-/** The mark plus the name, which is how it appears everywhere except a tab. */
+/**
+ * The lockup: the F glyph, then "rontly".
+ *
+ * The word is set in the product's own text face rather than drawn, which is
+ * the whole point of a wordmark built this way — it renders in Cyrillic
+ * contexts, it stays crisp at any size, and there is no second asset to keep
+ * in sync. The F carries the identity; the word only has to belong to it.
+ *
+ * The negative margin closes the gap the glyph's own side bearing opens up:
+ * the path stops at x=27 inside a 32-unit box, so without it the F and the
+ * "r" read as two words.
+ */
 export function Wordmark({ size = 26 }: { size?: number }) {
   return (
     <span className="wordmark">
       <Logo size={size} title="Frontly" />
-      <span>Frontly</span>
+      <span aria-hidden>rontly</span>
     </span>
   );
 }

@@ -57,8 +57,13 @@ export interface TodayResponse {
   appointments: DashboardAppointment[];
   conversations: DashboardConversation[];
   counts: { appointments: number; conversations: number; booked: number; transferred: number };
-  /** The appointments today's calls created, whatever day they land on. */
-  bookedByCalls: { id: string; startsAt: string; status: string }[];
+  /**
+   * Both optional, and deliberately so: Vercel and Render deploy separately,
+   * so a page can be newer than the API answering it. Typing them as always
+   * present is how that window becomes a white screen.
+   */
+  upcoming?: DashboardAppointment[];
+  bookedByCalls?: { id: string; startsAt: string; status: string }[];
 }
 
 export interface CalendarService {

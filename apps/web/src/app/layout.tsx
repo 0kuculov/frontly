@@ -34,20 +34,28 @@ export const metadata: Metadata = {
  *
  * Without it, a phone draws its address bar in its own colour above a page
  * that has a colour, which is the difference between an app and a website
- * somebody sent you. `#f6f7f9` is the shared paper of all four screens.
+ * somebody sent you. `#faf7f2` is the shared paper of all four screens.
  *
  * `lang` on <html> stays Macedonian — that is what the product IS, and what
  * /demo and /login are always in. The two screens that translate set `lang`
  * on their own root, which is the element a screen reader reads from.
  */
 export const viewport: Viewport = {
-  themeColor: '#f6f7f9',
+  themeColor: '#faf7f2',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="mk" className={`${golos.variable} ${plexMono.variable}`}>
-      <body className="min-h-full bg-slate-50 text-slate-900 antialiased">{children}</body>
+      {/*
+        Warm paper and warm ink, matching every screen's own tokens.
+
+        This was `bg-slate-50 text-slate-900` — cool Tailwind greys underneath
+        four stylesheets that had all moved to warm paper, so a screen that
+        did not paint its own background showed a colder one through. One
+        palette means this element too.
+      */}
+      <body className="min-h-full antialiased">{children}</body>
     </html>
   );
 }

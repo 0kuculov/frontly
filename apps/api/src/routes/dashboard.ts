@@ -12,6 +12,7 @@ import {
   listConversations,
   recordLogin,
   staffForService,
+  upcomingAppointments,
   startOfZonedDay,
   toZonedParts,
   type Database,
@@ -141,9 +142,18 @@ export async function registerDashboardRoutes(
     const t = toZonedParts(new Date(dayStart.getTime() + 26 * 3_600_000), tz);
     const dayEnd = new Date(startOfZonedDay(tz, t.year, t.month, t.day).getTime() - 1);
 
-    const [appointments, conversations] = await Promise.all([
+    const [appointments, conversations, upcoming] = await Promise.all([
       appointmentsBetween(db, session.businessId, dayStart, dayEnd),
       conversationsBetween(db, session.businessId, dayStart, dayEnd),
+      /**
+       * What is next, for the days when today is empty.
+       *
+       * `now` rather than `dayStart`: an appointment at nine this morning is
+       * not "next" at four in the afternoon. The screen only falls back to
+       * this list when today has nothing left, so overlap with the day rail
+       * is not a problem worth a second query to avoid.
+       */
+      upcomingAppointments(db, session.businessId, now, 5),
     ]);
 
     /**
@@ -170,6 +180,7 @@ export async function registerDashboardRoutes(
       day: { startsAt: dayStart.toISOString(), endsAt: dayEnd.toISOString() },
       appointments,
       conversations,
+      upcoming,
       bookedByCalls: booked
         .filter((a) => a !== undefined)
         .map((a) => ({ id: a.id, startsAt: a.startsAt.toISOString(), status: a.status })),

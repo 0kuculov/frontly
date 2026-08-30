@@ -7,14 +7,14 @@
  */
 
 .login {
-  --paper: #f6f7f9;
+  --paper: #faf7f2;
   --card: #ffffff;
-  --ink: #0b0f19;
-  --ink-faint: #8b91a1;
-  --rule-strong: #d3d8e3;
+  --ink: #14120f;
+  --ink-faint: #8a8378;
+  --rule-strong: #dbd3c4;
   --signal: #1b34ff;
   --booked: #0f7a52;
-  --booked-wash: #e7f5ef;
+  --booked-wash: #e6f2ec;
 
   min-height: 100dvh;
   display: grid;
@@ -32,7 +32,7 @@
   width: 100%;
   max-width: 22rem;
   background: var(--card);
-  border: 1px solid #e4e7ee;
+  border: 1px solid #ebe5da;
   border-radius: 10px;
   padding: 1.75rem;
 }

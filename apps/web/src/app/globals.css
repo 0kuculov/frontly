@@ -19,6 +19,21 @@ body {
 }
 
 /*
+ * The ground, once, for anything that does not paint its own.
+ *
+ * Warm paper rather than a cool grey, and the choice is argued rather than
+ * decorative: the physical object this software replaces is a paper
+ * appointment book. It is also the concession to the pink-to-orange reference
+ * that started this — the warmth people respond to in that palette, moved out
+ * of the accent (where it costs contrast and bands on a projector) and into
+ * the ground, where it costs nothing.
+ */
+body {
+  background: #faf7f2;
+  color: #14120f;
+}
+
+/*
  * Light, and say so.
  *
  * Every surface in this product is light by deliberate choice, but the browser

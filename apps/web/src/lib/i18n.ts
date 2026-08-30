@@ -36,6 +36,7 @@ export const DICT = {
 
   // --- today
   todaySchedule: { mk: 'Распоред за денес', sq: 'Orari i sotëm', en: "Today's schedule" },
+  comingUp: { mk: 'Следни термини', sq: 'Terminet e ardhshme', en: 'Coming up' },
   noAppointments: { mk: 'Нема закажани термини денес.', sq: 'Nuk ka termine sot.', en: 'No appointments today.' },
   nothingYet: { mk: 'Сè уште нема повици денес.', sq: 'Ende asnjë telefonatë sot.', en: 'No calls yet today.' },
   handledToday: { mk: 'Повици денес', sq: 'Telefonata sot', en: 'Calls today' },

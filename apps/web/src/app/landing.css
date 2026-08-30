@@ -20,17 +20,17 @@
 .landing {
   /* Identical tokens to dashboard.css. Same names on purpose: the two files
      should be diffable, and a divergence should be visible as a divergence. */
-  --paper: #f6f7f9;
+  --paper: #faf7f2;
   --card: #ffffff;
-  --ink: #0b0f19;
-  --ink-soft: #5b6376;
-  --ink-faint: #8b91a1;
-  --rule: #e4e7ee;
-  --rule-strong: #d3d8e3;
+  --ink: #14120f;
+  --ink-soft: #5c574e;
+  --ink-faint: #8a8378;
+  --rule: #ebe5da;
+  --rule-strong: #dbd3c4;
 
   --signal: #1b34ff;
   --signal-ink: #ffffff;
-  --signal-wash: #eef0ff;
+  --signal-wash: #eceeff;
 
   /* One radius scale for the whole page. Mixed corner systems read as broken
      rather than as variety. */
@@ -88,20 +88,43 @@
   background: var(--card);
 }
 
+/*
+ * The lockup, and the whole job here is the join.
+ *
+ * The mark IS the F — "rontly" completes the word rather than sitting beside
+ * it — so a gap turns "Frontly" into "F rontly", which is what the first
+ * version rendered. The glyph carries its own side bearing inside a 32-unit
+ * box (the path stops at x=25), so the negative margin pulls the word back
+ * across that empty space instead of guessing at a letter-space.
+ *
+ * `em`, never `rem`: the lockup is used at 20px in a footer and 26px in a
+ * nav, and a fixed pull would open a gap at one size and overlap at the other.
+ */
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   font-size: 1.05rem;
 }
 
-.lp-brand {
-  color: var(--signal);
-  --logo-knockout: var(--card);
+.wordmark > svg {
+  margin-right: -0.17em;
 }
-.lp-brand .wordmark > span {
+
+/*
+ * Two-tone lockup: the F in cobalt, the word in ink.
+ *
+ * `.landing .lp-brand` and not `.lp-brand`, because `.landing a { color:
+ * inherit }` is specificity (0,1,1) and beats a bare class. That rule has now
+ * silently eaten the colour of three different elements on this page — both
+ * CTAs during Section 4, and the mark just now. Anything coloured inside a
+ * link here needs the container in the selector.
+ */
+.landing .lp-brand {
+  color: var(--signal);
+}
+.landing .lp-brand .wordmark > span {
   color: var(--ink);
 }
 

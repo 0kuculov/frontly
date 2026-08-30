@@ -14,14 +14,14 @@
  */
 
 .stage {
-  --paper: #f4f6f9;
+  --paper: #faf7f2;
   --card: #ffffff;
-  --ink: #080d1a;
-  --ink-soft: #59617a;
+  --ink: #14120f;
+  --ink-soft: #5c574e;
   --signal: #1b34ff;
   --signal-ink: #ffffff;
   --live: #d40000;
-  --rule: #d7dce6;
+  --rule: #dbd3c4;
 
   --gap: clamp(1rem, 2.2vw, 2.25rem);
 

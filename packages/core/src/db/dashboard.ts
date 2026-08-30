@@ -161,6 +161,41 @@ function summarize(row: typeof conversations.$inferSelect): DashboardConversatio
   };
 }
 
+/**
+ * What is coming, whatever day it lands on.
+ *
+ * The day rail draws today. On a quiet Tuesday that is an empty box occupying
+ * the strongest position on the screen — the owner learns nothing, and the one
+ * idea the dashboard is built around disappears on exactly the days somebody
+ * opens it to ask "so what IS happening?". This answers that question with the
+ * same shape of row, so the rail renders either way.
+ *
+ * Bounded and ordered by start, so it is the NEXT few rather than all of them.
+ */
+export async function upcomingAppointments(
+  db: Database,
+  businessId: string,
+  after: Date,
+  limit = 5,
+): Promise<DashboardAppointment[]> {
+  const rows = await db
+    .select(appointmentSelection())
+    .from(appointments)
+    .innerJoin(services, eq(appointments.serviceId, services.id))
+    .innerJoin(staff, eq(appointments.staffId, staff.id))
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.status, 'booked'),
+        gte(appointments.startsAt, after),
+      ),
+    )
+    .orderBy(appointments.startsAt)
+    .limit(limit);
+
+  return rows as DashboardAppointment[];
+}
+
 /** Conversations that started inside a range — what "today" is counted from. */
 export async function conversationsBetween(
   db: Database,

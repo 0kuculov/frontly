@@ -23,26 +23,26 @@
 .app {
   /* Cool near-white. Not the cyan tint the palette search suggested — pleasant
      in a swatch, fatiguing on a screen open all day — and not cream. */
-  --paper: #f6f7f9;
+  --paper: #faf7f2;
   --card: #ffffff;
-  --ink: #0b0f19;
-  --ink-soft: #5b6376;
-  --ink-faint: #8b91a1;
-  --rule: #e4e7ee;
-  --rule-strong: #d3d8e3;
+  --ink: #14120f;
+  --ink-soft: #5c574e;
+  --ink-faint: #8a8378;
+  --rule: #ebe5da;
+  --rule-strong: #dbd3c4;
 
   /* Shared with the stage screen. The one piece of colour identity. */
   --signal: #1b34ff;
-  --signal-wash: #eef0ff;
+  --signal-wash: #eceeff;
 
   --booked: #0f7a52;
-  --booked-wash: #e7f5ef;
+  --booked-wash: #e6f2ec;
   --info: #3a4a6b;
-  --info-wash: #eef1f7;
+  --info-wash: #efeee9;
   --transferred: #9a5b00;
-  --transferred-wash: #fdf1de;
+  --transferred-wash: #f8efdd;
   --abandoned: #7b8194;
-  --abandoned-wash: #eef0f4;
+  --abandoned-wash: #efece5;
 
   --sidebar: 15rem;
   --radius: 8px;
@@ -238,34 +238,102 @@ h2 {
 
 /* --- the numbers ---------------------------------------------------------- */
 
+/*
+ * One number leads, three support it.
+ *
+ * This was four equal boxes in a bordered strip — the default answer to "we
+ * have four numbers", which encodes no opinion about which one matters and
+ * reads as an admin panel because every admin panel opens that way. For a
+ * receptionist product the important number is not ambiguous: calls handled is
+ * what the product DID today. So it is set four times larger, on the paper
+ * rather than in a box, and the breakdown hangs off it behind a single rule.
+ *
+ * No card containers at all here. The figures are three words and three
+ * numbers; a border around each says "these are separate things" when the
+ * whole point is that they are one thing, divided.
+ */
 .figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1px;
-  background: var(--rule);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: clamp(1.25rem, 4vw, 3rem);
+  flex-wrap: wrap;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--rule);
   margin-bottom: 2rem;
 }
 
+.figure-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+
+.figure-lead-value {
+  font-size: 3.25rem;
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.figure-lead-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  max-width: 6ch;
+  line-height: 1.15;
+}
+
+.figure-rest {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  margin-left: auto;
+}
+
 .figure {
-  background: var(--card);
-  padding: 0.875rem 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4375rem;
 }
 
 .figure-value {
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour on the number, not a chip behind it. Three coloured boxes would
+   compete with the lead figure they exist to break down. */
+.figure[data-tone='booked'] .figure-value {
+  color: var(--booked);
+}
+
+.figure[data-tone='transferred'] .figure-value {
+  color: var(--transferred);
 }
 
 .figure-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--ink-soft);
-  margin-top: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .figure-rest {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* The day a row belongs to, when the rail spans more than one. */
+.slot-day {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
 }
 
 /* --- THE DAY RAIL --------------------------------------------------------- */
@@ -854,7 +922,7 @@ tbody tr:hover {
   inset: 0;
   /* Ink at low alpha rather than black: the page behind stays readable, which
      is the point of not using a modal. */
-  background: rgb(11 15 25 / 0.28);
+  background: rgb(20 18 15 / 0.30);
   z-index: 20;
 }
 
@@ -879,7 +947,7 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  box-shadow: -18px 0 40px -30px rgb(11 15 25 / 0.5);
+  box-shadow: -18px 0 40px -30px rgb(20 18 15 / 0.5);
 }
 
 @media (max-width: 640px) {
@@ -1059,7 +1127,40 @@ tbody tr:hover {
 .slot .row-action,
 .slot .row-confirm {
   align-self: start;
-  margin-top: 0.125rem;
+  margin-top: 0.6rem;
+}
+
+/*
+ * Quiet until the hand goes for it, exactly like the calendar chips.
+ *
+ * A column of patients each with a visible "Откажи" beside them reads as a
+ * list of things to undo. Gated on `hover: hover` so a touch screen — which
+ * can never trigger the reveal — keeps them permanently visible.
+ */
+@media (hover: hover) {
+  .slot .row-action,
+  .slot .row-confirm {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .slot:hover .row-action,
+  .slot:focus-within .row-action,
+  .slot:hover .row-confirm,
+  .slot:focus-within .row-confirm {
+    opacity: 1;
+  }
+}
+
+/* A rail spanning several days needs room for the date above the time. */
+.rail[data-dates='true'] .slot-time {
+  width: 4.5rem;
+  left: -5.9rem;
+  line-height: 1.25;
+}
+
+.rail[data-dates='true'] {
+  margin-left: 1.4rem;
 }
 
 .chip-service {

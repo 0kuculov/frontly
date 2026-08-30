@@ -26,9 +26,22 @@ export default async function TodayPage() {
   const booked = data.appointments.filter((a) => a.status === 'booked');
   const now = Date.now();
 
+  /**
+   * Two fields the API may not be sending yet.
+   *
+   * Vercel and Render deploy on separate pipelines, so there is always a window
+   * where this page is newer than the API answering it — the same shape as the
+   * documented "a failed deploy leaves the OLD build running against the NEW
+   * schema", one layer up. Reading `.length` off an absent array white-screens
+   * the whole dashboard for that window; defaulting shows a dashboard missing
+   * one section, which is the right way round.
+   */
+  const upcoming = data.upcoming ?? [];
+  const bookedByCalls = data.bookedByCalls ?? [];
+
   /** appointment id -> when it starts, for the call rows. */
   const bookedFor = new Map(
-    data.bookedByCalls.filter((a) => a.status === 'booked').map((a) => [a.id, a.startsAt]),
+    bookedByCalls.filter((a) => a.status === 'booked').map((a) => [a.id, a.startsAt]),
   );
 
   return (
@@ -49,20 +62,54 @@ export default async function TodayPage() {
         </div>
       </div>
 
+      {/*
+        One number leads, three support it.
+
+        This was four equal boxes, which is the default answer to "we have four
+        numbers" and encodes no opinion about which one matters. For a
+        receptionist product the answer is not ambiguous: calls handled is what
+        the product DID today, and the other three are its breakdown. So that
+        one is set at four times the size and the rest hang off it, separated
+        by rules rather than boxed — the same reasoning that made the day rail
+        a rail instead of a list.
+      */}
       <div className="figures">
-        <Figure value={data.counts.appointments} label={t('appointmentsToday')} />
-        <Figure value={data.counts.conversations} label={t('handledToday')} />
-        <Figure value={data.counts.booked} label={t('bookedToday')} />
-        <Figure value={data.counts.transferred} label={t('forYou')} />
+        <div className="figure-lead">
+          <span className="figure-lead-value">{data.counts.conversations}</span>
+          <span className="figure-lead-label">{t('handledToday')}</span>
+        </div>
+        <div className="figure-rest">
+          <Figure value={data.counts.booked} label={t('bookedToday')} tone="booked" />
+          <Figure value={data.counts.appointments} label={t('appointmentsToday')} />
+          <Figure value={data.counts.transferred} label={t('forYou')} tone="transferred" />
+        </div>
       </div>
 
       <div className="grid-2">
+        {/*
+          The rail draws today when there is a today, and what is coming when
+          there is not.
+
+          An empty box in the strongest position on the screen taught the owner
+          nothing on exactly the days they open this asking "so what IS
+          happening?". The fallback uses the same rows, so the one idea this
+          dashboard is built around is on screen every day rather than only on
+          busy ones. The heading says which of the two they are looking at.
+        */}
         <section>
-          <h2>{t('todaySchedule')}</h2>
-          {booked.length === 0 ? (
-            <div className="panel empty">{t('noAppointments')}</div>
-          ) : (
+          <h2>{booked.length === 0 && upcoming.length > 0 ? t('comingUp') : t('todaySchedule')}</h2>
+          {booked.length > 0 ? (
             <DayRail appointments={booked} timezone={tz} now={now} lang={lang} />
+          ) : upcoming.length > 0 ? (
+            <DayRail
+              appointments={upcoming}
+              timezone={tz}
+              now={now}
+              lang={lang}
+              withDates
+            />
+          ) : (
+            <div className="panel empty">{t('noAppointments')}</div>
           )}
         </section>
 
@@ -122,9 +169,27 @@ export default async function TodayPage() {
   );
 }
 
-function Figure({ value, label }: { value: number; label: string }) {
+/**
+ * A supporting figure.
+ *
+ * `tone` colours the value, not a chip behind it — booked reads green,
+ * transferred reads amber, and the neutral one stays ink. Three words of
+ * colour in a quiet layout is enough; three coloured boxes would compete with
+ * the lead number they exist to break down.
+ */
+function Figure({
+  value,
+  label,
+  tone,
+}: {
+  value: number;
+  label: string;
+  tone?: 'booked' | 'transferred';
+}) {
+  // A zero is not a warning. Colouring "0 transferred" amber says something
+  // happened when the point is that nothing did.
   return (
-    <div className="figure">
+    <div className="figure" {...(tone && value > 0 ? { 'data-tone': tone } : {})}>
       <div className="figure-value">{value}</div>
       <div className="figure-label">{label}</div>
     </div>
@@ -148,11 +213,14 @@ function DayRail({
   timezone,
   now,
   lang,
+  withDates = false,
 }: {
   appointments: DashboardAppointment[];
   timezone: string;
   now: number;
   lang: Lang;
+  /** Upcoming rows span several days, so the day has to be on the row. */
+  withDates?: boolean;
 }) {
   const rows: React.ReactNode[] = [];
 
@@ -160,7 +228,7 @@ function DayRail({
     const start = new Date(appointment.startsAt).getTime();
     const previous = index > 0 ? appointments[index - 1] : undefined;
 
-    if (previous) {
+    if (previous && !withDates) {
       const previousEnd = new Date(previous.endsAt).getTime();
       const gapMinutes = Math.round((start - previousEnd) / 60_000);
 
@@ -191,7 +259,12 @@ function DayRail({
         data-status={appointment.status}
         data-past={new Date(appointment.endsAt).getTime() < now}
       >
-        <span className="slot-time">{formatTime(appointment.startsAt, timezone)}</span>
+        <span className="slot-time">
+          {withDates ? (
+            <span className="slot-day">{dayStamp(appointment.startsAt, timezone, lang)}</span>
+          ) : null}
+          {formatTime(appointment.startsAt, timezone)}
+        </span>
         <div className="slot-card">
           <span className="slot-name">{appointment.customerName}</span>
           <span className="slot-service">{appointment.serviceName}</span>
@@ -214,7 +287,11 @@ function DayRail({
     );
   });
 
-  return <div className="rail">{rows}</div>;
+  return (
+    <div className="rail" {...(withDates ? { 'data-dates': 'true' } : {})}>
+      {rows}
+    </div>
+  );
 }
 
 function NowMarker({
@@ -253,6 +330,16 @@ const NOW_WORD: Record<Lang, string> = { mk: 'сега', sq: 'tani', en: 'now' }
  * "вт 10:00" — enough to recognise the slot, short enough to sit inside a
  * table cell beside a badge. The full date is one click away on the call.
  */
+/** "чет 3.9" — the day a row belongs to, for a rail spanning several. */
+function dayStamp(iso: string, timeZone: string, lang: Lang): string {
+  return new Intl.DateTimeFormat(LOCALES[lang], {
+    timeZone,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'numeric',
+  }).format(new Date(iso));
+}
+
 function shortWhen(iso: string, timeZone: string, lang: Lang): string {
   return new Intl.DateTimeFormat(LOCALES[lang], {
     timeZone,

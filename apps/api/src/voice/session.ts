@@ -110,6 +110,8 @@ export interface CallSessionOptions {
    * `confirmation_sent_at` stays NULL.
    */
   onBooked?: ((appointmentId: string) => void) | undefined;
+  /** How long after the call ends before the confirmation text goes out. */
+  confirmationDelayMs?: number | undefined;
 
   /** Reprompt after this much silence. */
   silenceMs?: number;
@@ -154,9 +156,20 @@ export interface CallSessionOptions {
  */
 const DEFAULT_FILLER_AFTER_MS = 600;
 
+/**
+ * The beat between the caller hanging up and their phone buzzing.
+ *
+ * Long enough that the text is clearly a consequence of the call rather than
+ * part of it; short enough that it arrives while the handset is still in
+ * their hand.
+ */
+const DEFAULT_CONFIRMATION_DELAY_MS = 2000;
+
 
 export class CallSession {
   private readonly startedAt = Date.now();
+  /** Booked during this call, texted once it is over. */
+  private readonly bookedAppointmentIds: string[] = [];
   private readonly playback: PlaybackQueue;
   private readonly transcript: TranscriptTurn[] = [];
   private tts: ITextToSpeech;
@@ -319,6 +332,44 @@ export class CallSession {
     this.stt.write(Buffer.from(base64Payload, 'base64'));
   }
 
+  /**
+   * Text the caller once the handset is down, not the moment the slot is taken.
+   *
+   * Booking and confirming are separate events on purpose. Sending at
+   * `book_appointment` means the phone buzzes while the agent is still
+   * speaking — the caller looks down mid-sentence, and on a stage the
+   * notification lands during the part of the conversation you want watched.
+   * Sending after the call makes the text feel like a consequence of the call
+   * rather than an interruption of it.
+   *
+   * The delay is short and deliberate. A cron cycle would be a receipt that
+   * arrives up to an hour later; a couple of seconds is the beat between
+   * hanging up and looking at your phone.
+   *
+   * Nothing here is load-bearing: `confirmNow` resolves the appointment
+   * through the same "awaiting confirmation" query the hourly sweep uses, so a
+   * process that dies inside this window sends nothing twice and the sweep
+   * still catches it. That is why the timer is deliberately NOT cleared on
+   * teardown — the call is already over, and the send is the last thing it owes.
+   */
+  private scheduleConfirmations(): void {
+    const onBooked = this.options.onBooked;
+    if (!onBooked || this.bookedAppointmentIds.length === 0) return;
+
+    const ids = [...this.bookedAppointmentIds];
+    this.bookedAppointmentIds.length = 0;
+    const delay = this.options.confirmationDelayMs ?? DEFAULT_CONFIRMATION_DELAY_MS;
+
+    this.options.logger.info(
+      { callRef: this.options.callRef, appointments: ids, afterMs: delay },
+      'confirmation scheduled for after the call',
+    );
+
+    setTimeout(() => {
+      for (const id of ids) onBooked(id);
+    }, delay);
+  }
+
   async stop(reason: string): Promise<void> {
     if (this.ended) return;
     this.ended = true;
@@ -339,6 +390,10 @@ export class CallSession {
     this.tts.close();
 
     await this.persist(true);
+
+    // The call is over; now the phone may buzz.
+    this.scheduleConfirmations();
+
     this.options.logger.info(
       {
         callRef: this.options.callRef,
@@ -774,16 +829,17 @@ export class CallSession {
       await this.persist(false);
 
       /**
-       * Text the confirmation now, not on the next sweep.
+       * Remember what was booked; the text goes out when the call ENDS.
        *
        * Read from the tool's own output rather than re-querying: this is the
        * one place that knows a booking was made by THIS turn, and the id it
-       * returned is the appointment to confirm.
+       * returned is the appointment to confirm. Sending is deferred to `stop`
+       * — see `scheduleConfirmations`.
        */
       for (const call of result.toolCalls) {
         if (call.name !== 'book_appointment' || call.error) continue;
         const id = (call.output as { appointment_id?: unknown } | undefined)?.appointment_id;
-        if (typeof id === 'string') this.options.onBooked?.(id);
+        if (typeof id === 'string') this.bookedAppointmentIds.push(id);
       }
 
       // The engine asked for a human. Its explanation is already queued, so let

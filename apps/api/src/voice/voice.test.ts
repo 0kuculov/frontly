@@ -8,6 +8,7 @@ import {
   createTestDb,
   DEMO_IDS,
   getBusinessContext,
+  fromZonedWallClock,
   recognitionPhrases,
   renderGreeting,
   ScriptedLanguageModel,
@@ -1648,5 +1649,93 @@ describe('a line locked to one language', () => {
 
     expect(h.provider.recognizerOptions?.languages).toEqual(['mk', 'sq', 'en']);
     await h.session.stop('test');
+  });
+});
+
+describe('when the confirmation text goes out', () => {
+  /** The next Tuesday, so the clinic is definitely open and Ana is working. */
+  function nextTuesday(): Date {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + ((9 - d.getUTCDay()) % 7 || 7));
+    return d;
+  }
+
+  it('texts after the call ends, not while the agent is still speaking', async () => {
+    /**
+     * Booking and confirming are separate events on purpose. Sending at
+     * `book_appointment` buzzes the phone while the agent is mid-sentence —
+     * the caller looks down during the part of the call you want watched.
+     *
+     * What this pins is the ORDER: nothing is sent during the turn, and the
+     * ids survive to be flushed once the call is over.
+     */
+    const day = nextTuesday();
+    const startsAt = fromZonedWallClock(
+      context.business.timezone,
+      day.getUTCFullYear(),
+      day.getUTCMonth() + 1,
+      day.getUTCDate(),
+      9,
+      0,
+    );
+
+    const model = new ScriptedLanguageModel([
+      scriptedToolUse([
+        {
+          name: 'check_availability',
+          input: {
+            service_id: DEMO_IDS.services.checkup,
+            date_from: isoDate(startsAt),
+            date_to: isoDate(startsAt),
+            staff_id: null,
+          },
+        },
+      ]),
+      scriptedText('Слободно е во девет. Како се викате?'),
+      scriptedToolUse([
+        {
+          name: 'confirm_details',
+          input: { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+        },
+      ]),
+      scriptedText('Ве запишав како Марко Петровски. Точно?'),
+      scriptedToolUse([
+        {
+          name: 'book_appointment',
+          input: {
+            service_id: DEMO_IDS.services.checkup,
+            staff_id: DEMO_IDS.staff.ana,
+            starts_at: startsAt.toISOString(),
+            customer_name: 'Марко Петровски',
+            customer_contact: '+38970111222',
+          },
+        },
+      ]),
+      scriptedText('Готово, закажано е.'),
+    ]);
+
+    const booked: string[] = [];
+    const h = makeSession(model, {
+      onBooked: (id) => booked.push(id),
+      confirmationDelayMs: 30,
+    });
+
+    await h.session.start();
+    h.provider.stt!.say('Сакам термин во вторник наутро.', 0.92, 'mk');
+    await settle(150);
+    h.provider.stt!.say('Марко Петровски, нула седумдесет сто единаесет двесте дваесет и два.', 0.92);
+    await settle(150);
+    h.provider.stt!.say('Да, точно е.', 0.92);
+    await settle(200);
+
+    const rows = await db.select().from(appointments);
+    expect(rows).toHaveLength(1);
+    // The booking happened, and the phone has NOT buzzed yet.
+    expect(booked).toEqual([]);
+
+    await h.session.stop('test');
+    await settle(120);
+
+    expect(booked).toEqual([rows[0]!.id]);
   });
 });

@@ -23,6 +23,7 @@
     "measure:cost": "tsx scripts/measure-cost.ts",
     "load:test": "tsx scripts/load-test.ts",
     "probe:concurrency": "tsx scripts/probe-concurrency.ts",
+    "probe:tools": "tsx scripts/probe-tools.ts",
     "follow-up": "tsx scripts/follow-up.ts"
   },
   "dependencies": {

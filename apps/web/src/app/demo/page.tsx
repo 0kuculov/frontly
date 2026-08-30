@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Logo } from '../logo';
 import './demo.css';
 
 /**
@@ -168,6 +169,9 @@ export default function DemoPage() {
   return (
     <main className="stage">
       <header className="bar">
+        {/* Same mark as the dashboard and the landing page, at projector size.
+            One product, three scales. */}
+        <Logo size={30} title="Frontly" />
         <span className="line" data-live={live}>
           <span className="dot" />
           {live ? 'Во тек' : 'Слободна линија'}
@@ -190,6 +194,12 @@ export default function DemoPage() {
       <div className="feed" ref={feedRef}>
         {entries.length === 0 ? (
           <div className="idle">
+            {/*
+              An empty stage screen is the state the room looks at longest —
+              before the first call and between calls. The mark is what turns
+              it from "nothing has loaded" into a product waiting for a call.
+            */}
+            <Logo size={96} />
             <p className="idle-lead">Јавете се и закажете термин.</p>
             <p className="idle-number">+1 619 349 7599</p>
           </div>

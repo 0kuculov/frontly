@@ -4,6 +4,7 @@ import { getLang, getSessionToken } from '../../lib/session';
 import { translator } from '../../lib/i18n';
 import { signOut } from './actions';
 import { LanguageToggle, Nav } from './nav';
+import { Logo } from '../logo';
 import './dashboard.css';
 
 /**
@@ -35,8 +36,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="app">
       <aside className="side">
+        {/*
+          The mark, then the clinic. Which product this is, then whose data is
+          in it — a blue dot said neither, and the mark is the only thing that
+          makes this screen and the stage screen visibly one product.
+        */}
         <div className="brand">
-          <span className="brand-dot" aria-hidden />
+          <Logo size={20} />
           <span className="brand-name">{clinic}</span>
         </div>
 

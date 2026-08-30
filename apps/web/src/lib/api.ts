@@ -40,6 +40,7 @@ export interface DashboardConversation {
   durationMs: number | null;
   avgCallerFacingMs: number | null;
   turnCount: number;
+  appointmentId: string | null;
 }
 
 export interface TranscriptTurn {
@@ -56,6 +57,8 @@ export interface TodayResponse {
   appointments: DashboardAppointment[];
   conversations: DashboardConversation[];
   counts: { appointments: number; conversations: number; booked: number; transferred: number };
+  /** The appointments today's calls created, whatever day they land on. */
+  bookedByCalls: { id: string; startsAt: string; status: string }[];
 }
 
 export interface CalendarService {

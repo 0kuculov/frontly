@@ -90,6 +90,8 @@ export interface DashboardConversation {
   /** Average caller-facing latency across the turns that measured one. */
   avgCallerFacingMs: number | null;
   turnCount: number;
+  /** The appointment this conversation booked, if it booked one. */
+  appointmentId: string | null;
 }
 
 /**
@@ -155,6 +157,7 @@ function summarize(row: typeof conversations.$inferSelect): DashboardConversatio
         ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
         : null,
     turnCount: turns.length,
+    appointmentId: row.appointmentId ?? null,
   };
 }
 

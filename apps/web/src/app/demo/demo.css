@@ -320,3 +320,22 @@
     max-width: none;
   }
 }
+
+/*
+ * The mark, in the two places the room looks.
+ *
+ * Signal blue on the bar's white card; the knockout is that same card, so the
+ * robot's eyes read as holes rather than as white paint on white.
+ */
+.bar > svg,
+.idle > svg {
+  color: var(--signal);
+  --logo-knockout: var(--card);
+  flex: none;
+}
+
+.idle > svg {
+  margin: 0 auto 1.2rem;
+  display: block;
+  opacity: 0.9;
+}

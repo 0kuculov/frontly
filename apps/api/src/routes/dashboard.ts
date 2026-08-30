@@ -146,11 +146,33 @@ export async function registerDashboardRoutes(
       conversationsBetween(db, session.businessId, dayStart, dayEnd),
     ]);
 
+    /**
+     * What today's calls actually booked, even when it was not for today.
+     *
+     * The day rail draws appointments STARTING today, so a caller who books
+     * next Tuesday moves a counter and nothing else — on stage, the judge
+     * books a slot and the screen appears not to react. These are the
+     * appointments today's conversations created, looked up by the id the
+     * conversation already carries, so the call row can say when.
+     *
+     * One query per booked call. A clinic has a handful of those a day; a
+     * join here would be cheaper and much harder to read.
+     */
+    const booked = await Promise.all(
+      conversations
+        .map((c) => c.appointmentId)
+        .filter((id): id is string => Boolean(id))
+        .map((id) => getAppointmentById(db, session.businessId, id)),
+    );
+
     return {
       business: { name: context.business.name, timezone: tz },
       day: { startsAt: dayStart.toISOString(), endsAt: dayEnd.toISOString() },
       appointments,
       conversations,
+      bookedByCalls: booked
+        .filter((a) => a !== undefined)
+        .map((a) => ({ id: a.id, startsAt: a.startsAt.toISOString(), status: a.status })),
       counts: {
         appointments: appointments.filter((a) => a.status === 'booked').length,
         conversations: conversations.length,

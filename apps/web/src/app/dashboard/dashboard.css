@@ -89,9 +89,11 @@
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
   padding: 0 0.5rem;
+  color: var(--signal);
+  --logo-knockout: var(--card);
 }
 
 .brand-name {
@@ -100,12 +102,8 @@
   letter-spacing: -0.02em;
 }
 
-.brand-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--signal);
-  flex: none;
+.brand-name {
+  color: var(--ink);
 }
 
 .nav {
@@ -1097,4 +1095,13 @@ tbody tr:hover {
   .chip:focus-within .row-confirm {
     opacity: 1;
   }
+}
+
+/* When a call's booking lands, next to the outcome it landed from. */
+.booked-for {
+  margin-left: 0.4375rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--booked);
+  white-space: nowrap;
 }

@@ -26,6 +26,11 @@ export default async function TodayPage() {
   const booked = data.appointments.filter((a) => a.status === 'booked');
   const now = Date.now();
 
+  /** appointment id -> when it starts, for the call rows. */
+  const bookedFor = new Map(
+    data.bookedByCalls.filter((a) => a.status === 'booked').map((a) => [a.id, a.startsAt]),
+  );
+
   return (
     <>
       <AutoRefresh />
@@ -89,6 +94,20 @@ export default async function TodayPage() {
                         <span className="badge" data-outcome={c.outcome ?? 'open'}>
                           {outcomeLabel(c.outcome, lang)}
                         </span>
+                        {/*
+                          What the call actually booked, and when.
+
+                          The rail below draws appointments starting TODAY, so
+                          a caller who books next Tuesday used to move a counter
+                          and change nothing else on screen — on stage, the
+                          judge books a slot and the dashboard appears not to
+                          have noticed. This is the line that notices.
+                        */}
+                        {bookedFor.get(c.appointmentId ?? '') ? (
+                          <span className="booked-for">
+                            {shortWhen(bookedFor.get(c.appointmentId ?? '')!, tz, lang)}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="mono muted">{formatDuration(c.durationMs, lang)}</td>
                     </tr>
@@ -229,6 +248,20 @@ function formatGap(minutes: number, lang: Lang): string {
 
 const GAP_WORD: Record<Lang, string> = { mk: 'пауза', sq: 'pauzë', en: 'gap' };
 const NOW_WORD: Record<Lang, string> = { mk: 'сега', sq: 'tani', en: 'now' };
+
+/**
+ * "вт 10:00" — enough to recognise the slot, short enough to sit inside a
+ * table cell beside a badge. The full date is one click away on the call.
+ */
+function shortWhen(iso: string, timeZone: string, lang: Lang): string {
+  return new Intl.DateTimeFormat(LOCALES[lang], {
+    timeZone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(iso));
+}
 
 function longDate(iso: string, timeZone: string, lang: Lang): string {
   return new Intl.DateTimeFormat(LOCALES[lang], {

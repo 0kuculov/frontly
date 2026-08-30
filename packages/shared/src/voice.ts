@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AZURE_LOCALE, type Language } from './language.js';
+import { AZURE_LOCALE, LANGUAGES, type Language } from './language.js';
 
 /**
  * Per-language voice settings. Stored as a JSON column on `businesses` so a
@@ -44,6 +44,23 @@ export const recognitionConfigSchema = z.object({
    *              ear does not converge, but unverified for mk-MK.
    */
   segmentationStrategy: z.enum(['Default', 'Time', 'Semantic']).default('Time'),
+  /**
+   * Answer only in this language, and skip detection entirely.
+   *
+   * Handed one language, the recognizer is built without an auto-detect
+   * config — which removes the detection Azure otherwise runs on the opening
+   * audio, and with it the failure this project measured on 26 August: under
+   * `AtStart`, a caller who switches language mid-call becomes untranscribable
+   * for the rest of the connection (0.05 confidence, pure garbage).
+   *
+   * So this is two things at once — a small latency win on the first turn, and
+   * the removal of an entire failure mode — bought by answering a caller who
+   * opens in Albanian in Macedonian anyway.
+   *
+   * Unset by default: a trilingual clinic wants detection. Set it when the
+   * room is known, which for a staged demo it is.
+   */
+  lockLanguage: z.enum(LANGUAGES).optional(),
   /**
    * Silence inside a phrase before Azure calls it finished. Azure's range is
    * 100-5000 ms and its default is 500 ms, which is far too eager for someone

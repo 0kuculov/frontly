@@ -144,8 +144,15 @@ export interface CallSessionOptions {
  * Below roughly this, a pause reads as ordinary conversational rhythm and a
  * filler would talk over the answer arriving. Above it, the caller starts
  * wondering whether the call dropped.
+ *
+ * Lowered from 800 to 600 for the demo. The caller has ALREADY waited through
+ * the segmentation timeout and Azure's finalization before this clock even
+ * starts — roughly 1.2s of real silence — so 800 on top put the first sound
+ * at about two seconds. It fires on nearly every turn either way, because
+ * measured time-to-first-token is far longer than either value; what changes
+ * is how long the line is dead before the caller hears anything at all.
  */
-const DEFAULT_FILLER_AFTER_MS = 800;
+const DEFAULT_FILLER_AFTER_MS = 600;
 
 
 export class CallSession {
@@ -228,7 +235,12 @@ export class CallSession {
     this.recognition = options.recognition ?? recognitionFor(options.business.voiceConfig);
     this.playback = new PlaybackQueue(options.sink, options.frameIntervalMs ?? 20);
     this.tts = options.provider.createSynthesizer();
-    this.language = (options.business.languages[0] as Language | undefined) ?? DEFAULT_LANGUAGE;
+    // A locked language is the session's language from the first frame, so the
+    // greeting and every cached phrase come out of the right voice profile.
+    this.language =
+      this.recognition.lockLanguage ??
+      (options.business.languages[0] as Language | undefined) ??
+      DEFAULT_LANGUAGE;
     this.state = emptyConversationState(this.language);
   }
 
@@ -1266,6 +1278,18 @@ export class CallSession {
   // --- persistence -----------------------------------------------------------
 
   private businessLanguages(): Language[] {
+    /**
+     * A locked language wins over everything the business advertises.
+     *
+     * Handing the recognizer ONE language builds it without an auto-detect
+     * config, which skips the detection Azure runs on the opening audio — and
+     * takes the mid-call language-switch collapse off the table with it. The
+     * clinic can still advertise three languages on its widget; this is about
+     * what the phone line is willing to hear.
+     */
+    const locked = this.recognition.lockLanguage;
+    if (locked) return [locked];
+
     const configured = this.options.business.languages;
     return configured.length > 0 ? configured : [DEFAULT_LANGUAGE];
   }

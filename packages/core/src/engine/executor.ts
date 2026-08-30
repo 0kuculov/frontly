@@ -4,6 +4,7 @@ import { distinctStartTimes, findFreeSlots, spreadSlots } from '../booking/avail
 import { BookingError } from '../booking/errors.js';
 import type { Service } from '../db/schema.js';
 import { speakDate, speakDateTime, speakDuration, speakTime } from '../time/speech.js';
+import { speakPhoneNumber } from '../time/phone.js';
 import { eachLocalDate, toLocalDateString } from '../time/zone.js';
 import {
   bookAppointmentInput,
@@ -399,9 +400,21 @@ function runConfirmDetails(rawInput: unknown, ctx: TurnContext): ToolExecutionRe
       awaiting_confirmation: true,
       customer_name: input.customer_name,
       customer_contact: input.customer_contact,
+      /**
+       * The number, already rendered as digits.
+       *
+       * Handed over rather than described, for the same reason
+       * `check_availability` returns `spoken` times: an instruction the model
+       * has to follow is a chance to get it wrong, and this is the one moment
+       * in a call where a wrong digit becomes a booking nobody keeps. The
+       * prompt tells it to copy this field verbatim; `sanitizeForSpeech` spells
+       * out any long digit run regardless, so a model that ignores both still
+       * cannot read the number as a cardinal.
+       */
+      spoken_contact: speakPhoneNumber(input.customer_contact, ctx.state.language),
       note:
         'Изговори му ги името и бројот на пациентот и почекај да потврди. ' +
-        'Не закажувај во оваа реплика.',
+        'Бројот преземи го ТОЧНО од spoken_contact. Не закажувај во оваа реплика.',
     },
   };
 }

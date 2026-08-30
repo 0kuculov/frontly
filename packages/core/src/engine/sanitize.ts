@@ -1,5 +1,6 @@
 import type { Language } from '@frontly/shared';
 import { MK_MONTHS, mkOrdinalDay } from '../time/speech.js';
+import { spellLongDigitRuns } from '../time/phone.js';
 
 /**
  * Make a model reply safe to hand to a speech synthesizer.
@@ -83,7 +84,32 @@ export function sanitizeForSpeech(text: string, options: SanitizeOptions): strin
    * ever saw it.
    */
   const dated = language === 'mk' ? spellNumeralDates(text) : text;
-  const stripped = stripMarkdown(dated);
+
+  /**
+   * Titles before anything else, because they are read wrong in every language
+   * and the fix is the same shape as the date pass: expand the written form
+   * into the spoken one.
+   *
+   * "д-р" is the written Macedonian abbreviation and Azure does not say
+   * "доктор" for it — it reads the letters, hyphen included. The clinic's own
+   * staff names are stored that way, so this fires on every booking that names
+   * a doctor, which is most of them.
+   *
+   * Speech only. The SMS templates deliberately keep "д-р": a text is read
+   * with the eyes, where the abbreviation is both clear and four characters
+   * cheaper against a 70-character UCS-2 part.
+   */
+  const expanded = expandSpokenAbbreviations(dated, language);
+
+  /**
+   * Long digit runs, spoken as digits.
+   *
+   * After the date pass so a numeral date has already become words, and before
+   * markdown so nothing has been rearranged around the digits yet.
+   */
+  const numbered = spellLongDigitRuns(expanded, language);
+
+  const stripped = stripMarkdown(numbered);
   if (language !== 'mk' || !CYRILLIC.test(stripped)) return stripped;
 
   return fixLatinInCyrillic(stripped, language, options);
@@ -101,6 +127,34 @@ export function sanitizeForSpeech(text: string, options: SanitizeOptions): strin
  * Deliberately narrow. Only a 1-2 digit number immediately before a month
  * name is touched, so prices, durations and phone numbers are left alone.
  */
+/**
+ * Written abbreviations that a synthesizer reads as letters.
+ *
+ * Kept per language rather than global: "др" is a Macedonian doctor and an
+ * English "dr" is a different string entirely, and a shared table would
+ * eventually rewrite an Albanian word that happens to match.
+ */
+const SPOKEN_ABBREVIATIONS: Record<Language, readonly (readonly [RegExp, string])[]> = {
+  mk: [
+    // д-р / др. / Д-Р, with or without the hyphen or full stop.
+    [/(?<![\p{L}])[Дд][\s.-]?[Рр](?=[\s.]|$)\.?/gu, 'доктор'],
+    // м-р, the other title a clinic writes down.
+    [/(?<![\p{L}])[Мм][\s.-]?[Рр](?=[\s.]|$)\.?/gu, 'магистер'],
+    [/(?<![\p{L}])ул\.(?=\s)/gu, 'улица'],
+    [/(?<![\p{L}])бр\.(?=\s)/gu, 'број'],
+  ],
+  sq: [[/(?<![\p{L}])[Dd]r\.?(?=\s|$)/gu, 'doktor']],
+  en: [[/(?<![\p{L}])[Dd]r\.?(?=\s|$)/gu, 'doctor']],
+};
+
+export function expandSpokenAbbreviations(text: string, language: Language): string {
+  let out = text;
+  for (const [pattern, replacement] of SPOKEN_ABBREVIATIONS[language]) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 export function spellNumeralDates(text: string): string {
   const months = MK_MONTHS.join('|');
   /**

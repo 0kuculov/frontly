@@ -30,6 +30,7 @@ import {
  *   pnpm --filter @frontly/api tune:speech --barge-in 500 --barge-in-chars 3
  *   pnpm --filter @frontly/api tune:speech --strategy Semantic
  *   pnpm --filter @frontly/api tune:speech --reprompt-after 6000
+ *   pnpm --filter @frontly/api tune:speech --lock-language mk   # 'auto' undoes it
  *   pnpm --filter @frontly/api tune:speech --phrase-weight 0     # only 0 is accepted; see sweep:phrases
  *   pnpm --filter @frontly/api tune:speech --min-confidence 0.3
  *   pnpm --filter @frontly/api tune:speech --silent-low-confidence 1
@@ -142,8 +143,18 @@ async function main(): Promise<void> {
   const lowConfidenceHold = flag('low-confidence-hold');
   const presenceWindow = flag('presence-window');
   const abandonAfter = flag('abandon-after');
+  const lockLanguage = flag('lock-language');
 
   if (silence !== undefined) changes.segmentationSilenceMs = Number(silence);
+  /**
+   * `--lock-language mk` answers only in Macedonian and skips Azure's
+   * detection; `--lock-language auto` puts detection back. Worth setting when
+   * the room is known and clearing afterwards, because a locked line answers
+   * an Albanian caller in Macedonian.
+   */
+  if (lockLanguage !== undefined) {
+    changes.lockLanguage = lockLanguage === 'auto' ? undefined : lockLanguage;
+  }
   if (strategy !== undefined) changes.segmentationStrategy = strategy;
   if (bargeInMs !== undefined) changes.bargeInMs = Number(bargeInMs);
   if (bargeInChars !== undefined) changes.bargeInMinChars = Number(bargeInChars);

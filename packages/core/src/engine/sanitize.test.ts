@@ -147,13 +147,71 @@ describe('numeral dates', () => {
   });
 
   it('leaves numbers that are not dates alone', () => {
-    // Prices, durations and phone numbers must survive untouched.
+    // Prices and durations survive untouched: they are read correctly as
+    // cardinals already, and spelling them out would sound absurd.
     expect(sanitizeForSpeech('Цената е 1500 денари.', { language: 'mk' })).toContain('1500 денари');
     expect(sanitizeForSpeech('Трае 45 минути.', { language: 'mk' })).toContain('45 минути');
-    expect(sanitizeForSpeech('Бројот е 070 111 222.', { language: 'mk' })).toContain('070 111 222');
+    /**
+     * A phone number is the exception, and deliberately so — this assertion
+     * used to require the digits to survive. Azure reads "070 111 222" as
+     * three cardinals, and a caller checking their own number against
+     * "seventy, one hundred eleven, two hundred twenty two" has to do
+     * arithmetic before they can agree with it.
+     */
+    expect(sanitizeForSpeech('Бројот е 070 111 222.', { language: 'mk' })).toContain(
+      'нула седум нула, еден еден еден, два два два',
+    );
   });
 
   it('leaves an impossible day alone rather than inventing an ordinal', () => {
     expect(sanitizeForSpeech('верзија 99 август', { language: 'mk' })).toContain('99 август');
+  });
+});
+
+describe('titles a synthesizer would spell out letter by letter', () => {
+  it('says "доктор" for the written abbreviation', () => {
+    /**
+     * The clinic's own staff rows store "д-р Ана Смилевска", so this fires on
+     * most bookings. Azure reads the abbreviation as letters, hyphen included.
+     */
+    expect(sanitizeForSpeech('Закажано кај д-р Ана Смилевска.', { language: 'mk' })).toBe(
+      'Закажано кај доктор Ана Смилевска.',
+    );
+  });
+
+  it('handles the variants a human types', () => {
+    for (const written of ['д-р', 'др.', 'Д-Р', 'д.р']) {
+      expect(sanitizeForSpeech(`Кај ${written} Ана.`, { language: 'mk' })).toContain('доктор Ана');
+    }
+  });
+
+  it('leaves ordinary words that merely start with those letters alone', () => {
+    // "другар", "дрво" — a naive replace would maul both.
+    const text = 'Другар ми рече дека дрвото е таму.';
+    expect(sanitizeForSpeech(text, { language: 'mk' })).toBe(text);
+  });
+
+  it('expands the Albanian and English titles too', () => {
+    expect(sanitizeForSpeech('Me Dr. Ana.', { language: 'sq' })).toBe('Me doktor Ana.');
+    expect(sanitizeForSpeech('With Dr. Ana.', { language: 'en' })).toBe('With doctor Ana.');
+  });
+});
+
+describe('phone numbers are digits, never a cardinal', () => {
+  it('spells a bare number the model wrote out', () => {
+    /**
+     * The floor beneath the prompt. Azure reads "070123456" as a single
+     * enormous cardinal; a caller cannot check their own number against that.
+     */
+    expect(sanitizeForSpeech('Бројот е 070123456.', { language: 'mk' })).toBe(
+      'Бројот е нула седум нула, еден два три, четири пет шест.',
+    );
+  });
+
+  it('leaves prices, durations and years alone', () => {
+    // Six digits is the shortest thing that must never be read as a number;
+    // everything below is read correctly as a cardinal already.
+    const text = 'Прегледот трае 30 минути и чини 1500 денари, во 2026 година.';
+    expect(sanitizeForSpeech(text, { language: 'mk' })).toBe(text);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { groupPhoneDigits, speakPhoneNumber } from './phone.js';
 import { speakDate, speakDateTime, speakDuration, speakTime } from './speech.js';
 import {
   dayKeyForLocalDate,
@@ -176,5 +177,33 @@ describe('Albanian phrasing', () => {
   it('phrases a duration', () => {
     expect(speakDuration(30, 'sq')).toBe('30 minuta');
     expect(speakDuration(60, 'sq')).toBe('një orë');
+  });
+});
+
+describe('reading a phone number back', () => {
+  it('groups a Macedonian mobile in threes, digit by digit', () => {
+    expect(speakPhoneNumber('070123456', 'mk')).toBe(
+      'нула седум нула, еден два три, четири пет шест',
+    );
+  });
+
+  it('keeps the country code as its own group', () => {
+    expect(speakPhoneNumber('+38970123456', 'mk')).toBe(
+      'плус, три осум девет, седум нула еден, два три четири, пет шест',
+    );
+  });
+
+  it('never strands a single digit at the end', () => {
+    /**
+     * "…четири пет шест, седум" sounds like a correction rather than part of
+     * the number — the caller hears a stumble and starts again.
+     */
+    const groups = groupPhoneDigits('0701234567');
+    expect(groups.at(-1)!.length).toBeGreaterThan(1);
+  });
+
+  it('speaks the same digits in Albanian and English', () => {
+    expect(speakPhoneNumber('070123456', 'sq')).toBe('zero shtatë zero, një dy tre, katër pesë gjashtë');
+    expect(speakPhoneNumber('070123456', 'en')).toBe('zero seven zero, one two three, four five six');
   });
 });

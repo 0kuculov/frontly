@@ -194,6 +194,17 @@ function makeSession(
     },
     frameIntervalMs: 1,
     silenceMs: 40,
+    /**
+     * Pinned, like the two above it.
+     *
+     * These tests were written against a 800ms filler and several of them are
+     * sensitive to whether one fires. Leaving it to the production default
+     * means a tuning change — lowering it to 600 for the demo, say — quietly
+     * alters the timing of a suite that is already timing-dependent, and the
+     * failure surfaces as an unrelated low-confidence test going flaky. A test
+     * should fail because behaviour changed, not because a constant moved.
+     */
+    fillerAfterMs: 800,
     ...overrides,
   });
 
@@ -1595,6 +1606,47 @@ describe('a line we cannot hear', () => {
     // and only the score tells them apart.
     expect(low?.payload).toMatchObject({ confidence: 0.25, minConfidence: 0.4 });
     expect(good?.payload).toMatchObject({ confidence: 0.91 });
+    await h.session.stop('test');
+  });
+});
+
+describe('a line locked to one language', () => {
+  it('hands the recognizer exactly one language, so detection is skipped', async () => {
+    /**
+     * Handed one language, Azure is built without an auto-detect config. That
+     * removes the detection it otherwise runs on the opening audio — and with
+     * it the failure measured on 26 August, where a caller who switched
+     * language mid-call became untranscribable for the rest of the connection.
+     *
+     * The clinic still advertises three languages; this is only about what the
+     * phone line is willing to hear.
+     */
+    const locked = {
+      ...context.business,
+      languages: ['mk', 'sq', 'en'] as ('mk' | 'sq' | 'en')[],
+      voiceConfig: {
+        ...DEFAULT_VOICE_CONFIG,
+        recognition: { ...DEFAULT_RECOGNITION_CONFIG, lockLanguage: 'mk' as const },
+      },
+    };
+
+    const h = makeSession(new ScriptedLanguageModel([]), { business: locked });
+    await h.session.start();
+
+    expect(h.provider.recognizerOptions?.languages).toEqual(['mk']);
+    await h.session.stop('test');
+  });
+
+  it('still offers every configured language when nothing is locked', async () => {
+    const h = makeSession(new ScriptedLanguageModel([]), {
+      business: {
+        ...context.business,
+        languages: ['mk', 'sq', 'en'] as ('mk' | 'sq' | 'en')[],
+      },
+    });
+    await h.session.start();
+
+    expect(h.provider.recognizerOptions?.languages).toEqual(['mk', 'sq', 'en']);
     await h.session.stop('test');
   });
 });

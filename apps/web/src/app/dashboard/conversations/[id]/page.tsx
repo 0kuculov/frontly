@@ -48,7 +48,7 @@ export default async function ConversationPage({
     <>
       <div className="page-head">
         <div>
-          <Link className="linkish" href="/conversations">
+          <Link className="linkish" href="/dashboard/conversations">
             ← {t('back')}
           </Link>
           <h1 style={{ marginTop: '0.5rem' }}>{detail.fromIdentifier ?? detail.externalId}</h1>

@@ -1,11 +1,17 @@
 import {
   appointmentsBetween,
   authenticate,
+  bookAppointment,
+  BookingError,
+  cancelAppointment,
   conversationsBetween,
+  findFreeSlots,
+  getAppointmentById,
   getBusinessContext,
   getConversationDetail,
   listConversations,
   recordLogin,
+  staffForService,
   startOfZonedDay,
   toZonedParts,
   type Database,
@@ -175,7 +181,7 @@ export async function registerDashboardRoutes(
     return detail;
   });
 
-  /** A date range, for the week view. Read-only by design in Phase 4. */
+  /** A date range, for the week view. Writes live in the two routes below. */
   app.get('/dashboard/calendar', async (request, reply) => {
     const session = await requireSession(request, reply);
     if (!session) return;
@@ -194,7 +200,177 @@ export async function registerDashboardRoutes(
     return {
       business: { timezone: context.business.timezone, workingHours: context.business.workingHours },
       appointments: await appointmentsBetween(db, session.businessId, from, to),
+      /**
+       * The booking form's vocabulary, returned with the week rather than
+       * fetched separately: a form that needs two round trips before it can
+       * render its first dropdown is a form that flashes empty.
+       */
+      services: context.services
+        .filter((s) => s.active)
+        .map((s) => ({ id: s.id, name: s.nameMk, durationMinutes: s.durationMinutes })),
+      staff: context.staff
+        .filter((m) => m.active)
+        .map((m) => ({ id: m.id, name: m.name, serviceIds: m.serviceIds })),
     };
+  });
+
+  /**
+   * The times the owner may actually offer, from the same function the phone
+   * agent uses.
+   *
+   * The booking form does not let anyone type a time. It offers what
+   * `findFreeSlots` returns and nothing else - the identical rule the engine
+   * lives under ("the engine may only offer times check_availability
+   * returned"), for the identical reason: working hours, staff competence and
+   * existing appointments are three separate constraints, and a form that
+   * guesses gets one of them wrong and books over a patient.
+   */
+  app.get('/dashboard/availability', async (request, reply) => {
+    const session = await requireSession(request, reply);
+    if (!session) return;
+
+    const context = await getBusinessContext(db, session.businessId);
+    if (!context) return reply.code(404).send({ error: 'business_not_found' });
+
+    const query = request.query as { serviceId?: string; staffId?: string; date?: string };
+    const service = context.services.find((s) => s.id === query.serviceId && s.active);
+    if (!service) return reply.code(400).send({ error: 'unknown_service' });
+
+    const date = query.date ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return reply.code(400).send({ error: 'bad_date' });
+    }
+
+    const slots = await findFreeSlots(db, {
+      business: context.business,
+      service,
+      staff: staffForService(context.staff, service.id),
+      from: date,
+      to: date,
+      ...(query.staffId ? { staffId: query.staffId } : {}),
+      /**
+       * A single day returns EVERY free time, so the whole day is on screen.
+       * The cap exists for the phone, where a caller can only hold a few in
+       * their head; a person reading a list has no such limit.
+       */
+      limit: 200,
+    });
+
+    return {
+      date,
+      slots: slots.map((slot) => ({
+        staffId: slot.staffId,
+        staffName: slot.staffName,
+        startsAt: slot.startsAt.toISOString(),
+        endsAt: slot.endsAt.toISOString(),
+      })),
+    };
+  });
+
+  /**
+   * Book somebody in by hand.
+   *
+   * Goes through `bookAppointment`, the same function the phone and the chat
+   * widget call, so a walk-in gets the double-booking guard, the working-hours
+   * check and the staff-competence check without a second implementation of
+   * any of them. `channel: 'manual'` is what tells the history apart later -
+   * it has been a valid booking source since Phase 1 and was waiting for this.
+   */
+  app.post('/dashboard/appointments', async (request, reply) => {
+    const session = await requireSession(request, reply);
+    if (!session) return;
+
+    const context = await getBusinessContext(db, session.businessId);
+    if (!context) return reply.code(404).send({ error: 'business_not_found' });
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const str = (key: string) => (typeof body[key] === 'string' ? (body[key] as string).trim() : '');
+
+    const serviceId = str('serviceId');
+    const staffId = str('staffId');
+    const startsAt = new Date(str('startsAt'));
+    const customerName = str('customerName');
+    const customerPhone = str('customerPhone');
+    const notes = str('notes');
+
+    if (!serviceId || !staffId || !customerName || !customerPhone) {
+      return reply.code(400).send({ error: 'missing_fields' });
+    }
+    if (Number.isNaN(startsAt.getTime())) {
+      return reply.code(400).send({ error: 'bad_start_time' });
+    }
+
+    try {
+      const appointment = await bookAppointment(db, {
+        business: context.business,
+        serviceId,
+        staffId,
+        startsAt,
+        customerName,
+        customerPhone,
+        channel: 'manual',
+        ...(notes ? { notes } : {}),
+        /**
+         * No minimum notice from the dashboard. The hour of notice exists so a
+         * caller cannot book a slot the clinic has no time to prepare for; the
+         * owner standing at the desk with the patient in front of them is the
+         * person that rule was protecting, and they can see the clock.
+         */
+        minimumNoticeMinutes: 0,
+      });
+
+      app.log.info(
+        { businessId: session.businessId, appointmentId: appointment.id },
+        'appointment booked from the dashboard',
+      );
+      return reply.code(201).send({ appointment });
+    } catch (error) {
+      return bookingFailure(reply, error);
+    }
+  });
+
+  /**
+   * Take somebody off the calendar.
+   *
+   * Cancels rather than deletes: the partial unique index that prevents
+   * double-booking is scoped to `status in ('booked','completed')`, so a
+   * cancellation frees the slot while the record of it survives. A DELETE
+   * would lose the fact that a patient was ever booked, which is the one
+   * thing an owner asks about afterwards.
+   */
+  app.post('/dashboard/appointments/:id/cancel', async (request, reply) => {
+    const session = await requireSession(request, reply);
+    if (!session) return;
+
+    const context = await getBusinessContext(db, session.businessId);
+    if (!context) return reply.code(404).send({ error: 'business_not_found' });
+
+    const { id } = request.params as { id: string };
+    const existing = await getAppointmentById(db, session.businessId, id);
+    if (!existing) return reply.code(404).send({ error: 'not_found' });
+
+    try {
+      /**
+       * `cancelAppointment` proves ownership with the caller's phone number,
+       * because on the phone that is the only proof there is. Here the proof
+       * is the session: the row was just fetched WHERE businessId = the
+       * session's, which is the tenancy boundary. Passing the appointment's
+       * own number satisfies a guard that is answering a different question.
+       */
+      const appointment = await cancelAppointment(db, {
+        business: context.business,
+        appointmentId: existing.id,
+        customerPhone: existing.customerPhone,
+      });
+
+      app.log.info(
+        { businessId: session.businessId, appointmentId: id },
+        'appointment cancelled from the dashboard',
+      );
+      return { appointment };
+    } catch (error) {
+      return bookingFailure(reply, error);
+    }
   });
 
   app.get('/dashboard/settings', async (request, reply) => {
@@ -288,4 +464,19 @@ export async function registerDashboardRoutes(
     );
     return { ok: true, updated: Object.keys(updates) };
   });
+}
+
+/**
+ * Turn a booking failure into a status the form can act on.
+ *
+ * The codes exist because each one is a different thing to tell a person, and
+ * that was true of a caller before it was true of a form. `slot_taken` is 409
+ * rather than 400 on purpose: nothing about the request was wrong, somebody
+ * else simply got there first, and the fix is to pick another time rather than
+ * to correct a field.
+ */
+function bookingFailure(reply: FastifyReply, error: unknown): FastifyReply {
+  if (!(error instanceof BookingError)) throw error;
+  const status = error.code === 'slot_taken' ? 409 : error.code === 'not_found' ? 404 : 400;
+  return reply.code(status).send({ error: error.code, message: error.message });
 }

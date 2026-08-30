@@ -301,6 +301,16 @@ h2 {
 .slot {
   position: relative;
   padding: 0 0 0.5rem;
+  /* The card and its cancel share a row: the action belongs to the patient,
+     not to the day, so it sits beside them rather than under the rail. */
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+.slot > .slot-card {
+  flex: 1;
+  min-width: 0;
 }
 
 .slot-time {
@@ -820,5 +830,271 @@ tbody tr:hover {
   * {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* --- booking by hand ------------------------------------------------------
+ *
+ * A sheet, not a modal in the middle of the screen. It slides against the
+ * right edge because the calendar it is adding to stays visible beside it —
+ * the owner picks a time while looking at the week that time lands in, and a
+ * centred dialog would cover exactly the thing being reasoned about.
+ *
+ * On a narrow screen it becomes the bottom half of the viewport instead, which
+ * is where a thumb is.
+ */
+
+.head-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  /* Ink at low alpha rather than black: the page behind stays readable, which
+     is the point of not using a modal. */
+  background: rgb(11 15 25 / 0.28);
+  z-index: 20;
+}
+
+.booking {
+  position: fixed;
+  z-index: 21;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(26rem, 100vw);
+  overflow-y: auto;
+  background: var(--card);
+  border-left: 1px solid var(--rule-strong);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: -18px 0 40px -30px rgb(11 15 25 / 0.5);
+}
+
+@media (max-width: 640px) {
+  .booking {
+    top: auto;
+    width: 100vw;
+    max-height: 88dvh;
+    border-left: 0;
+    border-top: 1px solid var(--rule-strong);
+    border-radius: 12px 12px 0 0;
+  }
+}
+
+.booking-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.booking-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  letter-spacing: -0.02em;
+}
+
+.booking-grid {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.booking label {
+  display: grid;
+  gap: 0.3125rem;
+}
+
+.booking label > span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.booking input,
+.booking select {
+  font: inherit;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+
+.booking input:focus-visible,
+.booking select:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+
+.booking-slots {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.875rem 0;
+  margin: 0;
+}
+
+.booking-slots legend {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0;
+}
+
+/*
+ * Every free time on the day, as a grid of equal targets.
+ *
+ * Fixed-width columns rather than flex-wrap so the times line up in a column
+ * the eye can run down — reading a diary is scanning for a gap, and ragged
+ * chips make that a search instead of a glance.
+ */
+.slot-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr));
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+}
+
+.slot-pick {
+  font: inherit;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  padding: 0.4375rem 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.slot-pick:hover {
+  border-color: var(--signal);
+}
+
+.slot-pick[data-chosen='true'] {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #fff;
+  font-weight: 600;
+}
+
+.booking-note {
+  margin: 0.75rem 0 0;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+.booking-error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #a11;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* --- cancelling ----------------------------------------------------------
+ *
+ * Quiet until hovered. A row of red buttons down the day would make the
+ * dashboard look like a list of problems; the action is there when the hand
+ * goes for it and invisible the rest of the time.
+ */
+
+.row-action {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.row-action:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.row-action:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+
+.row-action-danger:hover {
+  color: #a11;
+  border-color: #f0b6b6;
+}
+
+.row-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
+/* The rail keeps its shape: the action is a third column, aligned to the top
+   of the card so it does not drift down beside a two-line service name. */
+.slot .row-action,
+.slot .row-confirm {
+  align-self: start;
+  margin-top: 0.125rem;
+}
+
+.chip-service {
+  display: block;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip[data-status='cancelled'] {
+  border-left-color: var(--rule-strong);
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.chip .row-action {
+  padding-left: 0;
+  padding-right: 0.25rem;
+}
+
+/*
+ * On a pointer device the cancel appears when the hand goes for it.
+ *
+ * A week grid with a visible "Откажи" under every patient reads as a list of
+ * things to undo rather than a diary. Gated on `hover: hover` so a touch
+ * screen — which can never trigger the reveal — keeps them permanently
+ * visible, and `focus-within` keeps the keyboard path intact.
+ */
+@media (hover: hover) {
+  .chip .row-action,
+  .chip .row-confirm {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .chip:hover .row-action,
+  .chip:focus-within .row-action,
+  .chip:hover .row-confirm,
+  .chip:focus-within .row-confirm {
+    opacity: 1;
   }
 }

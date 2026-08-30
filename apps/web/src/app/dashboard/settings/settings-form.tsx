@@ -5,10 +5,10 @@ import type { SettingsResponse } from '../../../lib/api';
 import type { Lang } from '../../../lib/session';
 import { saveSettings, type SaveState } from '../actions';
 
-const LANGUAGE_NAMES: Record<string, { mk: string; en: string }> = {
-  mk: { mk: 'Македонски', en: 'Macedonian' },
-  sq: { mk: 'Албански', en: 'Albanian' },
-  en: { mk: 'Англиски', en: 'English' },
+const LANGUAGE_NAMES: Record<string, Record<Lang, string>> = {
+  mk: { mk: 'Македонски', sq: 'Maqedonisht', en: 'Macedonian' },
+  sq: { mk: 'Албански', sq: 'Shqip', en: 'Albanian' },
+  en: { mk: 'Англиски', sq: 'Anglisht', en: 'English' },
 };
 
 /**

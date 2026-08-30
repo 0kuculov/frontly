@@ -285,3 +285,137 @@ describe('changing settings', () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+
+describe('booking by hand', () => {
+  /** The next Tuesday, so the clinic is open and Ana is working. */
+  function nextTuesday(): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + ((9 - d.getUTCDay()) % 7 || 7));
+    return d.toISOString().slice(0, 10);
+  }
+
+  async function freeSlots(date: string) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/dashboard/availability?serviceId=${DEMO_IDS.services.checkup}&date=${date}`,
+      headers: auth(ownToken),
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().slots as { staffId: string; startsAt: string }[];
+  }
+
+  it('offers only times availability returned, and books one of them', async () => {
+    const date = nextTuesday();
+    const slots = await freeSlots(date);
+    expect(slots.length).toBeGreaterThan(0);
+
+    const slot = slots[0]!;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/dashboard/appointments',
+      headers: auth(ownToken),
+      payload: {
+        serviceId: DEMO_IDS.services.checkup,
+        staffId: slot.staffId,
+        startsAt: slot.startsAt,
+        customerName: 'Марко Петровски',
+        customerPhone: '+38970111222',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const appointmentId = created.json().appointment.id as string;
+
+    // The slot it just took is no longer on offer. This is the whole point of
+    // asking availability rather than letting the form invent a time.
+    const after = await freeSlots(date);
+    expect(after.map((s) => s.startsAt)).not.toContain(slot.startsAt);
+
+    // Booking the same slot again is refused by the index, not by app logic.
+    const clash = await app.inject({
+      method: 'POST',
+      url: '/dashboard/appointments',
+      headers: auth(ownToken),
+      payload: {
+        serviceId: DEMO_IDS.services.checkup,
+        staffId: slot.staffId,
+        startsAt: slot.startsAt,
+        customerName: 'Некој друг',
+        customerPhone: '+38970333444',
+      },
+    });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json().error).toBe('slot_taken');
+
+    // Cancelling frees it again: the unique index is partial on purpose.
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/dashboard/appointments/${appointmentId}/cancel`,
+      headers: auth(ownToken),
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().appointment.status).toBe('cancelled');
+
+    const freed = await freeSlots(date);
+    expect(freed.map((s) => s.startsAt)).toContain(slot.startsAt);
+  });
+
+  it('refuses a time outside working hours', async () => {
+    const date = nextTuesday();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/dashboard/appointments',
+      headers: auth(ownToken),
+      payload: {
+        serviceId: DEMO_IDS.services.checkup,
+        staffId: DEMO_IDS.staff.ana,
+        // 03:00 UTC is 05:00 in Skopje, hours before the clinic opens.
+        startsAt: `${date}T03:00:00.000Z`,
+        customerName: 'Марко',
+        customerPhone: '+38970111222',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('outside_working_hours');
+  });
+
+  it('will not cancel another clinic appointment, even with its real id', async () => {
+    const date = nextTuesday();
+    const slots = await freeSlots(date);
+    const slot = slots[0]!;
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/dashboard/appointments',
+      headers: auth(ownToken),
+      payload: {
+        serviceId: DEMO_IDS.services.checkup,
+        staffId: slot.staffId,
+        startsAt: slot.startsAt,
+        customerName: 'Марко Петровски',
+        customerPhone: '+38970111222',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const appointmentId = created.json().appointment.id as string;
+
+    /**
+     * The other clinic knows the id and asks anyway. 404, not 403: whether
+     * that id exists is itself the other clinic's business.
+     */
+    const stolen = await app.inject({
+      method: 'POST',
+      url: `/dashboard/appointments/${appointmentId}/cancel`,
+      headers: auth(otherToken),
+    });
+    expect(stolen.statusCode).toBe(404);
+
+    // And it is genuinely still booked.
+    const mine = await app.inject({
+      method: 'POST',
+      url: `/dashboard/appointments/${appointmentId}/cancel`,
+      headers: auth(ownToken),
+    });
+    expect(mine.statusCode).toBe(200);
+  });
+});

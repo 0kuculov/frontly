@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { apiGet, type DashboardConversation, type SettingsResponse } from '../../../lib/api';
 import { formatDuration, formatTime, outcomeLabel, translator } from '../../../lib/i18n';
-import { getLang } from '../../../lib/session';
+import { getLang, type Lang } from '../../../lib/session';
 import { AutoRefresh } from '../auto-refresh';
 
 export const dynamic = 'force-dynamic';
@@ -58,7 +58,7 @@ export default async function ConversationsPage() {
                 <tr key={c.id}>
                   <td className="mono">{when(c.startedAt, tz, lang)}</td>
                   <td>
-                    <Link className="row-link" href={`/conversations/${c.id}`}>
+                    <Link className="row-link" href={`/dashboard/conversations/${c.id}`}>
                       {c.fromIdentifier ?? c.externalId}
                     </Link>
                   </td>
@@ -88,7 +88,7 @@ export default async function ConversationsPage() {
   );
 }
 
-function when(iso: string, timeZone: string, lang: 'mk' | 'en'): string {
+function when(iso: string, timeZone: string, lang: Lang): string {
   const date = new Intl.DateTimeFormat(lang === 'mk' ? 'mk-MK' : 'en-GB', {
     timeZone,
     day: '2-digit',

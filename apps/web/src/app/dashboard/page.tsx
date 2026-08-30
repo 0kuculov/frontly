@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { apiGet, type DashboardAppointment, type TodayResponse } from '../../lib/api';
-import { formatDuration, formatTime, outcomeLabel, translator } from '../../lib/i18n';
-import { getLang } from '../../lib/session';
+import { formatDuration, formatTime, LOCALES, outcomeLabel, translator } from '../../lib/i18n';
+import { getLang, type Lang } from '../../lib/session';
 import { AutoRefresh } from './auto-refresh';
+import { CancelButton } from './cancel-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,7 +81,7 @@ export default async function TodayPage() {
                     <tr key={c.id}>
                       <td className="mono">{formatTime(c.startedAt, tz)}</td>
                       <td>
-                        <Link className="row-link" href={`/conversations/${c.id}`}>
+                        <Link className="row-link" href={`/dashboard/conversations/${c.id}`}>
                           {c.fromIdentifier ?? '—'}
                         </Link>
                       </td>
@@ -132,7 +133,7 @@ function DayRail({
   appointments: DashboardAppointment[];
   timezone: string;
   now: number;
-  lang: 'mk' | 'en';
+  lang: Lang;
 }) {
   const rows: React.ReactNode[] = [];
 
@@ -179,10 +180,17 @@ function DayRail({
             <span>{appointment.staffName}</span>
             <span>
               {appointment.serviceDurationMinutes}
-              {lang === 'mk' ? 'мин' : 'min'}
+              {MINUTE_UNIT[lang]}
             </span>
           </span>
         </div>
+        {/*
+          The cancel sits on the row it cancels, not behind a menu. An owner
+          rubbing an appointment out is doing it while the patient is on the
+          phone saying they cannot come, and a two-step confirm on the row is
+          the whole safety this needs.
+        */}
+        <CancelButton appointmentId={appointment.id} lang={lang} label={appointment.customerName} />
       </div>,
     );
   });
@@ -197,26 +205,33 @@ function NowMarker({
 }: {
   now: number;
   timezone: string;
-  lang: 'mk' | 'en';
+  lang: Lang;
 }) {
   return (
-    <div className="now-marker" aria-label={lang === 'mk' ? 'сега' : 'now'}>
+    <div className="now-marker" aria-label={NOW_WORD[lang]}>
       <span className="now-label">{formatTime(new Date(now).toISOString(), timezone)}</span>
     </div>
   );
 }
 
-function formatGap(minutes: number, lang: 'mk' | 'en'): string {
+/** Hour and minute abbreviations, which do not come from Intl. */
+const HOUR_UNIT: Record<Lang, string> = { mk: 'ч', sq: 'orë', en: 'h' };
+const MINUTE_UNIT: Record<Lang, string> = { mk: 'мин', sq: 'min', en: 'min' };
+
+function formatGap(minutes: number, lang: Lang): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   const parts: string[] = [];
-  if (hours > 0) parts.push(`${hours}${lang === 'mk' ? 'ч' : 'h'}`);
-  if (rest > 0) parts.push(`${rest}${lang === 'mk' ? 'мин' : 'min'}`);
-  return `${parts.join(' ')} ${lang === 'mk' ? 'пауза' : 'gap'}`;
+  if (hours > 0) parts.push(`${hours}${HOUR_UNIT[lang]}`);
+  if (rest > 0) parts.push(`${rest}${MINUTE_UNIT[lang]}`);
+  return `${parts.join(' ')} ${GAP_WORD[lang]}`;
 }
 
-function longDate(iso: string, timeZone: string, lang: 'mk' | 'en'): string {
-  return new Intl.DateTimeFormat(lang === 'mk' ? 'mk-MK' : 'en-GB', {
+const GAP_WORD: Record<Lang, string> = { mk: 'пауза', sq: 'pauzë', en: 'gap' };
+const NOW_WORD: Record<Lang, string> = { mk: 'сега', sq: 'tani', en: 'now' };
+
+function longDate(iso: string, timeZone: string, lang: Lang): string {
+  return new Intl.DateTimeFormat(LOCALES[lang], {
     timeZone,
     weekday: 'long',
     day: 'numeric',

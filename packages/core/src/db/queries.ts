@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type {
   Channel,
   ConversationOutcome,
@@ -8,10 +8,12 @@ import type {
 } from '@frontly/shared';
 import type { Database } from './client.js';
 import {
+  appointments,
   businesses,
   conversations,
   services,
   staff,
+  type Appointment,
   type Business,
   type Conversation,
   type Service,
@@ -199,6 +201,25 @@ export async function updateConversation(
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
+}
+
+/**
+ * One appointment, scoped to the business asking for it.
+ *
+ * The businessId in the WHERE clause IS the tenancy boundary, not a
+ * belt-and-braces extra: an id alone must never be enough to read or change
+ * another clinic's patient.
+ */
+export async function getAppointmentById(
+  db: Database,
+  businessId: string,
+  appointmentId: string,
+): Promise<Appointment | undefined> {
+  const [row] = await db
+    .select()
+    .from(appointments)
+    .where(and(eq(appointments.id, appointmentId), eq(appointments.businessId, businessId)));
+  return row;
 }
 
 /** Read a conversation back — used by the dashboard and the Phase 7 live view. */

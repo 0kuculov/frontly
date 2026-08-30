@@ -58,6 +58,25 @@ export interface TodayResponse {
   counts: { appointments: number; conversations: number; booked: number; transferred: number };
 }
 
+export interface CalendarService {
+  id: string;
+  name: string;
+  durationMinutes: number;
+}
+
+export interface CalendarStaff {
+  id: string;
+  name: string;
+  serviceIds: string[];
+}
+
+export interface FreeSlot {
+  staffId: string;
+  staffName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 export interface SettingsResponse {
   business: {
     id: string;
@@ -102,6 +121,40 @@ export async function apiGet<T>(path: string): Promise<T> {
     throw new Error(`API ${path} failed: ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+/**
+ * A POST that requires a session.
+ *
+ * Returns the parsed body on success and the API's own error code on failure,
+ * because every booking failure is a different sentence to show a person:
+ * `slot_taken` means pick another time, `outside_working_hours` means the
+ * clinic is shut, `invalid_input` means a field is wrong. Collapsing them into
+ * "something went wrong" would throw away the only useful part.
+ */
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  const token = await getSessionToken();
+  if (!token) redirect('/login');
+
+  const response = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    cache: 'no-store',
+  });
+
+  if (response.status === 401) redirect('/login');
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: detail.error ?? `http_${response.status}` };
+  }
+  return { ok: true, data: (await response.json()) as T };
 }
 
 export async function apiPatch(

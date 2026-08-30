@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { toLang, type Lang } from './lang';
 
 /**
  * The browser's half of the login.
@@ -38,16 +39,20 @@ export async function clearSession(): Promise<void> {
   (await cookies()).delete(TOKEN_COOKIE);
 }
 
-export type Lang = 'mk' | 'en';
+export { LANGS, type Lang } from './lang';
 
 /**
  * Macedonian unless asked otherwise.
  *
- * The product is Macedonian and the owner is Macedonian; English is a toggle
- * for a judge reading over a shoulder, not a default to fall back to.
+ * The product is Macedonian and so is the demo clinic. Albanian is a first
+ * class choice rather than a fallback — the phone already answers in it — and
+ * English is there so a judge reading over a shoulder is not locked out.
+ *
+ * Anything unrecognised becomes Macedonian rather than throwing: this reads a
+ * cookie, and a cookie is whatever the browser last sent.
  */
 export async function getLang(): Promise<Lang> {
-  return (await cookies()).get(LANG_COOKIE)?.value === 'en' ? 'en' : 'mk';
+  return toLang((await cookies()).get(LANG_COOKIE)?.value);
 }
 
 export async function setLang(lang: Lang): Promise<void> {

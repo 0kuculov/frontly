@@ -1,24 +1,42 @@
 import Link from 'next/link';
-import { apiGet, type DashboardAppointment } from '../../../lib/api';
-import { DAY_KEYS, dayLabel, formatTime, translator } from '../../../lib/i18n';
-import { getLang } from '../../../lib/session';
+import {
+  apiGet,
+  type CalendarService,
+  type CalendarStaff,
+  type DashboardAppointment,
+} from '../../../lib/api';
+import {
+  appointmentWord,
+  DAY_KEYS,
+  dayLabel,
+  formatTime,
+  LOCALES,
+  translator,
+} from '../../../lib/i18n';
+import { getLang, type Lang } from '../../../lib/session';
 import { AutoRefresh } from '../auto-refresh';
+import { BookingForm } from '../booking-form';
+import { CancelButton } from '../cancel-button';
 
 export const dynamic = 'force-dynamic';
 
 interface CalendarResponse {
   business: { timezone: string; workingHours: Record<string, { start: string; end: string }[]> };
   appointments: DashboardAppointment[];
+  services: CalendarService[];
+  staff: CalendarStaff[];
 }
 
 /**
- * The week, read-only.
+ * The week, and the one place a person can put somebody on it.
  *
- * Deliberately not draggable. Dragging an appointment to a new slot means
- * re-running availability, staff competence and the double-booking guard, and
- * getting any of that subtly wrong on stage is worse than not having the
- * feature — the phone is the product, and this view exists to prove the
- * bookings are real, not to become a scheduling app.
+ * Still not draggable, and the reason has not changed: moving an appointment
+ * means re-running availability, staff competence and the double-booking
+ * guard, and getting any of that subtly wrong is worse than not having it.
+ * Adding and cancelling need none of that — the API asks the same
+ * `findFreeSlots` the phone asks, and `bookAppointment` applies the same three
+ * checks — so those two are here and moving is not. Reschedule is a cancel
+ * plus a booking, in the open, where both halves are visible.
  *
  * Closed days are drawn, not hidden. An empty Sunday next to an empty Tuesday
  * would look identical otherwise, and one of those is a problem.
@@ -63,17 +81,32 @@ export default async function CalendarPage({
           <h1>{t('calendar')}</h1>
           <p className="page-sub">
             {rangeLabel(monday, sunday, tz, lang)} · {data.appointments.length}{' '}
-            {lang === 'mk' ? 'термини' : 'appointments'}
+            {appointmentWord(data.appointments.length, lang)}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <Link className="btn btn-quiet" href={`/calendar?week=${offset - 1}`}>
+        <div className="head-actions">
+          <BookingForm
+            services={data.services}
+            staff={data.staff}
+            timezone={tz}
+            lang={lang}
+            /*
+             * The day the calendar is already showing, so the form opens on the
+             * week in front of the owner rather than on today. Monday when the
+             * week is a future one; today when it is this one.
+             */
+            defaultDate={localDateKey(
+              (offset === 0 ? new Date() : monday).toISOString(),
+              tz,
+            )}
+          />
+          <Link className="btn btn-quiet" href={`/dashboard/calendar?week=${offset - 1}`}>
             ← {t('previous')}
           </Link>
-          <Link className="btn btn-quiet" href="/calendar">
+          <Link className="btn btn-quiet" href="/dashboard/calendar">
             {t('thisWeek')}
           </Link>
-          <Link className="btn btn-quiet" href={`/calendar?week=${offset + 1}`}>
+          <Link className="btn btn-quiet" href={`/dashboard/calendar?week=${offset + 1}`}>
             {t('next')} →
           </Link>
         </div>
@@ -99,9 +132,13 @@ export default async function CalendarPage({
               </span>
 
               {day.appointments.map((a) => (
-                <div className="chip" key={a.id}>
+                <div className="chip" key={a.id} data-status={a.status}>
                   <span className="chip-time">{formatTime(a.startsAt, tz)}</span>
                   <span className="chip-name">{a.customerName}</span>
+                  <span className="chip-service">{a.serviceName}</span>
+                  {a.status === 'booked' ? (
+                    <CancelButton appointmentId={a.id} lang={lang} label={a.customerName} />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -136,8 +173,8 @@ function dayNumber(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric' }).format(date);
 }
 
-function rangeLabel(from: Date, to: Date, timeZone: string, lang: 'mk' | 'en'): string {
-  const fmt = new Intl.DateTimeFormat(lang === 'mk' ? 'mk-MK' : 'en-GB', {
+function rangeLabel(from: Date, to: Date, timeZone: string, lang: Lang): string {
+  const fmt = new Intl.DateTimeFormat(LOCALES[lang], {
     timeZone,
     day: 'numeric',
     month: 'short',

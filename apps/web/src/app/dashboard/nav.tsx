@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { Lang } from '../../lib/session';
+import { LANGS, type Lang } from '../../lib/lang';
 import { switchLanguage } from './actions';
 
 /**
@@ -11,12 +11,15 @@ import { switchLanguage } from './actions';
  * which button the owner just pressed.
  */
 
-const ITEMS = [
-  { href: '/dashboard', mk: 'Денес', en: 'Today' },
-  { href: '/dashboard/conversations', mk: 'Разговори', en: 'Conversations' },
-  { href: '/dashboard/calendar', mk: 'Календар', en: 'Calendar' },
-  { href: '/dashboard/settings', mk: 'Поставки', en: 'Settings' },
-] as const;
+const ITEMS: { href: string; label: Record<Lang, string> }[] = [
+  { href: '/dashboard', label: { mk: 'Денес', sq: 'Sot', en: 'Today' } },
+  {
+    href: '/dashboard/conversations',
+    label: { mk: 'Разговори', sq: 'Bisedat', en: 'Conversations' },
+  },
+  { href: '/dashboard/calendar', label: { mk: 'Календар', sq: 'Kalendari', en: 'Calendar' } },
+  { href: '/dashboard/settings', label: { mk: 'Поставки', sq: 'Cilësimet', en: 'Settings' } },
+];
 
 export function Nav({ lang }: { lang: Lang }) {
   const pathname = usePathname();
@@ -30,7 +33,7 @@ export function Nav({ lang }: { lang: Lang }) {
           item.href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(item.href);
         return (
           <Link key={item.href} href={item.href} {...(current ? { 'aria-current': 'page' } : {})}>
-            {item[lang]}
+            {item.label[lang]}
           </Link>
         );
       })}
@@ -38,17 +41,26 @@ export function Nav({ lang }: { lang: Lang }) {
   );
 }
 
+/**
+ * Each language named in its own script, not in the reader's.
+ *
+ * "МК" in Cyrillic, "SQ" in Latin: someone looking for Albanian is scanning
+ * for a Latin word, and rendering every option in one alphabet makes the
+ * toggle a puzzle for exactly the person it is there for.
+ */
+const LABELS: Record<Lang, string> = { mk: 'МК', sq: 'SQ', en: 'EN' };
+
 export function LanguageToggle({ lang }: { lang: Lang }) {
   return (
     <div className="lang" role="group" aria-label="Language">
-      {(['mk', 'en'] as const).map((option) => (
+      {LANGS.map((option) => (
         <button
           key={option}
           type="button"
           aria-pressed={lang === option}
           onClick={() => void switchLanguage(option)}
         >
-          {option === 'mk' ? 'МК' : 'EN'}
+          {LABELS[option]}
         </button>
       ))}
     </div>

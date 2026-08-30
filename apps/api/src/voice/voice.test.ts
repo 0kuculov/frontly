@@ -30,7 +30,14 @@ import {
 } from '@frontly/shared';
 import { PlaybackQueue, toFrames } from './audio.js';
 import { CallSession, type CallSessionOptions } from './session.js';
-import { CANNOT_HEAR, DID_NOT_CATCH, FAREWELL, FILLERS, REPROMPTS } from './phrases.js';
+import {
+  CANNOT_HEAR,
+  DID_NOT_CATCH,
+  FAREWELL,
+  FILLERS,
+  REPROMPTS,
+  isClosingCue,
+} from './phrases.js';
 import { phraseRequest, SpeechCache } from './speech-cache.js';
 import { decodeClientState, encodeClientState, TelnyxProvider, telnyxMediaProtocol } from './telnyx.js';
 import { warmBusiness, warmRequests } from './warm.js';
@@ -1739,3 +1746,154 @@ describe('when the confirmation text goes out', () => {
     expect(booked).toEqual([rows[0]!.id]);
   });
 });
+
+describe('closing cues', () => {
+  /**
+   * The allowlist is the safety property, so the negative cases are the ones
+   * worth writing down: a sentence that merely CONTAINS "не" is a request,
+   * not a goodbye, and treating it as one would cut a caller off mid-booking.
+   */
+  it('recognises a goodbye and nothing else', () => {
+    for (const said of [
+      'Не, благодарам.',
+      'Не ти благодарам',
+      'Не, тоа е сè.',
+      'Тоа е сè, благодарам.',
+      'Благодарам, пријатно!',
+      'Ништо повеќе, фала.',
+      'Довидување.',
+    ]) {
+      expect(isClosingCue(said, 'mk'), said).toBe(true);
+    }
+
+    for (const said of [
+      'Не, сакам друго време.',
+      'Не е тоа, во единаесет сакав.',
+      'Да.',
+      'Добро.',
+      'Може ли и во сабота, благодарам?',
+      '',
+    ]) {
+      expect(isClosingCue(said, 'mk'), said).toBe(false);
+    }
+
+    expect(isClosingCue('No, thanks.', 'en')).toBe(true);
+    expect(isClosingCue("No, that's all, thank you", 'en')).toBe(true);
+    expect(isClosingCue('No, book it for Friday', 'en')).toBe(false);
+    expect(isClosingCue('Jo, faleminderit.', 'sq')).toBe(true);
+    expect(isClosingCue('Jo, dua një orë tjetër', 'sq')).toBe(false);
+  });
+});
+
+describe('closing a booked call', () => {
+  /** The next Tuesday, so the clinic is definitely open and Ana is working. */
+  function nextTuesday(): Date {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + ((9 - d.getUTCDay()) % 7 || 7));
+    return d;
+  }
+
+  /** Availability, confirmation, booking — the three turns a booking needs. */
+  function bookingScript(startsAt: Date, ...tail: Anthropic.Message[]): ScriptedLanguageModel {
+    return new ScriptedLanguageModel([
+      scriptedToolUse([
+        {
+          name: 'check_availability',
+          input: {
+            service_id: DEMO_IDS.services.checkup,
+            date_from: isoDate(startsAt),
+            date_to: isoDate(startsAt),
+            staff_id: null,
+          },
+        },
+      ]),
+      scriptedText('Слободно е во девет. Како се викате?'),
+      scriptedToolUse([
+        {
+          name: 'confirm_details',
+          input: { customer_name: 'Марко Петровски', customer_contact: '+38970111222' },
+        },
+      ]),
+      scriptedText('Ве запишав како Марко Петровски. Точно?'),
+      scriptedToolUse([
+        {
+          name: 'book_appointment',
+          input: {
+            service_id: DEMO_IDS.services.checkup,
+            staff_id: DEMO_IDS.staff.ana,
+            starts_at: startsAt.toISOString(),
+            customer_name: 'Марко Петровски',
+            customer_contact: '+38970111222',
+          },
+        },
+      ]),
+      scriptedText('Готово, закажано е. Има ли нешто друго?'),
+      ...tail,
+    ]);
+  }
+
+  async function bookThrough(h: Harness): Promise<void> {
+    await h.session.start();
+    h.provider.stt!.say('Сакам термин во вторник наутро.', 0.92, 'mk');
+    await settle(150);
+    h.provider.stt!.say('Марко Петровски, нула седум нула, еден еден еден.', 0.92);
+    await settle(150);
+    h.provider.stt!.say('Да, точно е.', 0.92);
+    await settle(200);
+  }
+
+  it('says goodbye immediately instead of asking the model again', async () => {
+    const startsAt = tuesdayAtNine(nextTuesday());
+    /**
+     * A reply the model would give if it were asked. It must never be heard:
+     * the whole point is that a booked caller saying "не, благодарам" costs a
+     * cached phrase rather than a round trip to a model with nothing to do.
+     */
+    const model = bookingScript(startsAt, scriptedText('Ова не смее да се чуе.'));
+
+    const h = makeSession(model, {
+      silenceMs: 2000,
+      recognition: bargeIn({ farewellGraceMs: 20 }),
+    });
+    await bookThrough(h);
+    expect(await db.select().from(appointments)).toHaveLength(1);
+
+    h.provider.tts.spoken.length = 0;
+    h.provider.stt!.say('Не, благодарам.', 0.94, 'mk');
+    await waitFor(() => h.hangUps === 1);
+
+    const said = h.provider.tts.spoken.map((t) => t.text);
+    expect(said).toContain(FAREWELL.mk);
+    expect(said).not.toContain('Ова не смее да се чуе.');
+    // "Само момент." in front of a goodbye is the line this exists to kill.
+    expect(h.fillers).toHaveLength(0);
+    await h.session.stop('test');
+  });
+
+  it('still asks the model when the caller has more to say', async () => {
+    const startsAt = tuesdayAtNine(nextTuesday());
+    const model = bookingScript(startsAt, scriptedText('Секако, слушам.'));
+
+    const h = makeSession(model, { silenceMs: 2000 });
+    await bookThrough(h);
+
+    h.provider.tts.spoken.length = 0;
+    // Contains "не" and is still a request. The shortcut must not take it.
+    h.provider.stt!.say('Не, сакам и чистење на забен камен.', 0.94, 'mk');
+    await waitFor(() => h.provider.tts.spoken.some((t) => t.text === 'Секако, слушам.'));
+
+    expect(h.hangUps).toBe(0);
+    await h.session.stop('test');
+  });
+});
+
+function tuesdayAtNine(day: Date): Date {
+  return fromZonedWallClock(
+    context.business.timezone,
+    day.getUTCFullYear(),
+    day.getUTCMonth() + 1,
+    day.getUTCDate(),
+    9,
+    0,
+  );
+}

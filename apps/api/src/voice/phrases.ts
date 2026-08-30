@@ -130,3 +130,67 @@ export function cacheablePhrases(language: Language): string[] {
     ...FILLERS[language],
   ];
 }
+
+/**
+ * Words a caller uses to say "that is all", and nothing else.
+ *
+ * Two sets per language, and the split is the whole safety argument.
+ * `CLOSING_STRONG` is a word that can only be ending the conversation —
+ * "не", "благодарам", "довидување". `CLOSING_FILLER` is the connective tissue
+ * those arrive wrapped in — "тоа", "е", "друго", "ви". An utterance closes the
+ * call only when every one of its words is in one of the two sets AND at least
+ * one is strong, which is an allowlist rather than a keyword search: "не,
+ * сакам уште еден термин" contains a strong word and is still a request, so
+ * the unknown word "сакам" sends it to the model where it belongs.
+ *
+ * Deliberately NOT a phrase list of whole sentences. Recognition returns
+ * "Не ти благодарам", "Не, тоа е сè", "Благодарам, пријатно" and a dozen more
+ * shapes of the same six words; matching the vocabulary covers all of them and
+ * an exact-phrase list would cover three.
+ */
+const CLOSING_STRONG: Record<Language, readonly string[]> = {
+  mk: ['не', 'ништо', 'благодарам', 'фала', 'довидување', 'пријатно', 'сè', 'здраво'],
+  sq: ['jo', 'asgjë', 'faleminderit', 'mirupafshim', 'kaq', 'mjafton'],
+  en: ['no', 'nope', 'nothing', 'thanks', 'thank', 'bye', 'goodbye', 'cheers'],
+};
+
+const CLOSING_FILLER: Record<Language, readonly string[]> = {
+  mk: ['тоа', 'е', 'се', 'друго', 'повеќе', 'нема', 'ви', 'ти', 'многу', 'добро', 'ок', 'океј'],
+  sq: ['tjetër', 'më', 'shumë', 'ju', 'të', 'ditën', 'mirë', 'e', 'është', 'po', 'ok', 'okej'],
+  // 's' is what an apostrophe leaves behind: "that's all" splits to that, s, all.
+  en: ['you', 'that', 'thats', 's', 'is', 'all', 'good', 'day', 'much', 'else', 'ok', 'okay', 'so'],
+};
+
+/** How many words an utterance may hold and still be only a goodbye. */
+const CLOSING_MAX_WORDS = 6;
+
+/**
+ * Is this caller saying goodbye and nothing more?
+ *
+ * `\w` is defined over `[A-Za-z0-9_]` and matches no Cyrillic at all, so the
+ * split is on "not a letter or a number" in Unicode terms instead. It also
+ * folds the punctuation Azure adds, which is why "Не, тоа е сè." and
+ * "не тоа е сè" are the same utterance here.
+ */
+export function isClosingCue(text: string, language: Language): boolean {
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0 || words.length > CLOSING_MAX_WORDS) return false;
+
+  const strong = CLOSING_STRONG[language];
+  const filler = CLOSING_FILLER[language];
+  let sawStrong = false;
+  for (const word of words) {
+    if (strong.includes(word)) {
+      sawStrong = true;
+      continue;
+    }
+    if (!filler.includes(word)) return false;
+  }
+  return sawStrong;
+}

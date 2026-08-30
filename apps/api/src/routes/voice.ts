@@ -254,6 +254,21 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
 
   // --- media stream ---------------------------------------------------------
 
+  /**
+   * Call refs with a live media stream, so a second one is visible.
+   *
+   * A production call on 30 Aug 2026 booked an appointment and stored an empty
+   * transcript. Both sessions would have shared the conversation row (it is
+   * keyed on the call ref), so a silent second session persisting last is the
+   * shape that explains it — but nothing in the logs could confirm or refute
+   * that, which is the actual problem. The database no longer lets an empty
+   * writer win; this says out loud whether there was one.
+   *
+   * Diagnostic only. It deliberately does not refuse the second stream: which
+   * of the two carries the caller's audio is exactly what is not known.
+   */
+  const liveStreams = new Set<string>();
+
   app.get(`${telephony.routePrefix}/stream`, { websocket: true }, (socket) => {
     let session: CallSession | undefined;
     let streamRef: string | undefined;
@@ -343,6 +358,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
 
     socket.on('close', () => {
       closing = true;
+      if (callRef) liveStreams.delete(callRef);
       void session?.stop('socket_closed');
     });
 
@@ -357,6 +373,19 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRoutesOptions> = async (app, o
       from?: string | undefined;
       to?: string | undefined;
     }): Promise<void> {
+      if (session) {
+        // A second `start` on one socket would replace the running session and
+        // leave the first holding an open recognizer nobody stops.
+        app.log.warn({ callRef: input.callRef }, 'ignoring a second stream start on one socket');
+        return;
+      }
+      if (liveStreams.has(input.callRef)) {
+        app.log.warn(
+          { callRef: input.callRef },
+          'a second media stream opened for a call that already has one',
+        );
+      }
+      liveStreams.add(input.callRef);
       try {
         const context = input.businessId
           ? await getBusinessContext(db, input.businessId)

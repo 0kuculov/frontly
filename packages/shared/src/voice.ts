@@ -187,8 +187,15 @@ export const recognitionConfigSchema = z.object({
    * the agent having forgotten to hang up. This window is a courtesy, not a
    * question: whatever the caller does or does not say, the call ends when it
    * expires — unless they start a real turn, which cancels the close outright.
+   *
+   * Was 2500ms, and heard on a real call that was too long: the grace starts
+   * only once the goodbye has finished playing, so the caller has already had
+   * the whole farewell to answer over. Two and a half seconds of silence after
+   * it reads as a line nobody is on. 1500ms still clears the segmentation
+   * timeout, so a caller who does answer back is still heard and still
+   * cancels the close.
    */
-  farewellGraceMs: z.number().int().min(0).max(10_000).default(2500),
+  farewellGraceMs: z.number().int().min(0).max(10_000).default(1500),
   /**
    * Apologies actually SPOKEN before the agent stops retrying and offers a way
    * out. Silent holds do not count against it, so raising the silent budget

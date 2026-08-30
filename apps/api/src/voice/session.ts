@@ -31,6 +31,7 @@ import {
   FILLERS,
   REPROMPTS,
   TRANSFER_UNAVAILABLE,
+  isClosingCue,
 } from './phrases.js';
 import type { CallEvent, CallEventDraft } from '../demo/events.js';
 import { phraseRequest, type SpeechCache } from './speech-cache.js';
@@ -628,7 +629,51 @@ export class CallSession {
       'caller said',
     );
     this.record({ role: 'customer', text: result.text, confidence: result.confidence });
+    if (await this.closeAfterBooking(result.text)) return;
     await this.runTurn(result.text);
+  }
+
+  /**
+   * The appointment is booked, the caller has said "не, благодарам", and there
+   * is nothing left to think about.
+   *
+   * Measured on a real call, the ordinary path spends about eight seconds on
+   * that "no": the filler fires at 600ms ("Само момент."), the model takes its
+   * time to first token, the goodbye is synthesized, and only then does the
+   * grace period start. Every one of those is time spent deciding something
+   * that is already decided — the model has no tool to call and nothing to look
+   * up, it is generating a sentence we already have in the cache.
+   *
+   * So say the cached farewell instead, in ~35ms, and start closing.
+   *
+   * Three conditions keep this from firing on a caller who is not finished,
+   * and all three matter:
+   *  - a booking must have completed in THIS call, so the shortcut cannot
+   *    truncate a conversation that has not yet done what it was for;
+   *  - the utterance must be nothing but a goodbye (see `isClosingCue`);
+   *  - the conversation must not already be concluding, or a second cue during
+   *    the grace window would speak a second farewell over the first.
+   *
+   * The caller keeps the last word regardless: recognition stays live through
+   * the goodbye and the grace, and anything they say cancels the close.
+   */
+  private async closeAfterBooking(text: string): Promise<boolean> {
+    if (this.ended || this.busy || this.state.concluded) return false;
+    if (!this.state.appointmentId) return false;
+    if (!isClosingCue(text, this.language)) return false;
+
+    this.options.logger.info(
+      { callRef: this.options.callRef, text },
+      'caller closed a booked call — speaking the cached farewell',
+    );
+
+    this.state.concluded = true;
+    const farewell = FAREWELL[this.language];
+    this.record({ role: 'agent', text: farewell });
+    await this.speak(farewell);
+    await this.persist(false);
+    this.armFarewellClose();
+    return true;
   }
 
   private async onSttError(error: Error): Promise<void> {
@@ -692,6 +737,16 @@ export class CallSession {
      */
     const filler = setTimeout(() => {
       if (this.ended || spokenSentences.length > 0 || this.playback.isPlaying) return;
+      /**
+       * Never stall a goodbye.
+       *
+       * "Само момент." in front of "довидување" is the line the caller
+       * remembers, because it is the one moment in the call where they are
+       * already done and the machine asks them to wait anyway. A closing cue
+       * that reaches the model at all (an unbooked call, an enquiry answered)
+       * gets silence instead — the reply is one short sentence away.
+       */
+      if (isClosingCue(text, this.language)) return;
       const chosen = this.nextFiller();
       if (!chosen) return;
       this.options.logger.info(

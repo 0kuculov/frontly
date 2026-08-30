@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type {
   Channel,
   ConversationOutcome,
@@ -163,12 +163,37 @@ export async function updateConversation(
   conversationId: string,
   input: UpdateConversationInput,
 ): Promise<void> {
+  /**
+   * Two guards against a second, emptier writer.
+   *
+   * Found in production on 30 Aug 2026: a call that booked an appointment
+   * stored `appointmentId`, an EMPTY transcript and the outcome `abandoned`.
+   * The booking survived only by accident — `appointmentId` is written under a
+   * truthiness check, so the empty writer skipped it while `[]` (truthy) and
+   * the final `abandoned` default went straight over the real ones.
+   *
+   * A session with nothing recorded knows nothing about the call, so:
+   *  - an empty transcript is never written. The column already defaults to
+   *    `[]`, so nothing is lost and a real transcript cannot be erased.
+   *  - `abandoned` never overwrites a different outcome. It is the fallback
+   *    for "we do not know how this ended", and "booked" is knowing.
+   * Every other outcome still overwrites freely: a call really can go from
+   * booked to cancelled.
+   */
+  const outcome =
+    input.outcome === 'abandoned'
+      ? sql`CASE WHEN ${conversations.outcome} IS NULL OR ${conversations.outcome} = 'abandoned'
+                 THEN 'abandoned' ELSE ${conversations.outcome} END`
+      : input.outcome;
+
   await db
     .update(conversations)
     .set({
-      ...(input.transcript ? { transcript: input.transcript } : {}),
+      ...(input.transcript && input.transcript.length > 0
+        ? { transcript: input.transcript }
+        : {}),
       ...(input.language ? { languageDetected: input.language } : {}),
-      ...(input.outcome ? { outcome: input.outcome } : {}),
+      ...(outcome ? { outcome } : {}),
       ...(input.appointmentId ? { appointmentId: input.appointmentId } : {}),
       ...(input.ended ? { endedAt: new Date() } : {}),
       updatedAt: new Date(),

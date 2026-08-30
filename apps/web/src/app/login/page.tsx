@@ -19,7 +19,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   // Already signed in: skip the form rather than making them prove it twice.
-  if (await getSessionToken()) redirect('/');
+  if (await getSessionToken()) redirect('/dashboard');
 
   const lang = await getLang();
   const t = translator(lang);
@@ -46,7 +46,7 @@ export default async function LoginPage({
     }
 
     await setSessionToken(result.token);
-    redirect('/');
+    redirect('/dashboard');
   }
 
   return (

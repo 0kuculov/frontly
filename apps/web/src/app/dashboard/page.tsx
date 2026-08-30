@@ -28,7 +28,15 @@ export default async function TodayPage() {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('todaySchedule')}</h1>
+          {/*
+            The clinic is greeted by name, the way it would be walking in.
+            It also answers a question the demo-reset incident proved matters:
+            WHICH business is on screen. A dashboard that could be anyone's is
+            one wrong environment variable away from being someone else's.
+          */}
+          <h1>
+            {t('welcome')}, {data.business.name}
+          </h1>
           <p className="page-sub">{longDate(data.day.startsAt, tz, lang)}</p>
         </div>
       </div>

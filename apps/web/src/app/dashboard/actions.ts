@@ -47,6 +47,6 @@ export async function saveSettings(
   const result = await apiPatch('/dashboard/settings', body);
   if (!result.ok) return { status: 'error', ...(result.error ? { error: result.error } : {}) };
 
-  revalidatePath('/settings');
+  revalidatePath('/dashboard/settings');
   return { status: 'ok' };
 }

@@ -12,10 +12,10 @@ import { switchLanguage } from './actions';
  */
 
 const ITEMS = [
-  { href: '/', mk: 'Денес', en: 'Today' },
-  { href: '/conversations', mk: 'Разговори', en: 'Conversations' },
-  { href: '/calendar', mk: 'Календар', en: 'Calendar' },
-  { href: '/settings', mk: 'Поставки', en: 'Settings' },
+  { href: '/dashboard', mk: 'Денес', en: 'Today' },
+  { href: '/dashboard/conversations', mk: 'Разговори', en: 'Conversations' },
+  { href: '/dashboard/calendar', mk: 'Календар', en: 'Calendar' },
+  { href: '/dashboard/settings', mk: 'Поставки', en: 'Settings' },
 ] as const;
 
 export function Nav({ lang }: { lang: Lang }) {
@@ -27,7 +27,7 @@ export function Nav({ lang }: { lang: Lang }) {
         // "/" must not light up for every route, and a sub-page of
         // /conversations should still show its section as current.
         const current =
-          item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+          item.href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(item.href);
         return (
           <Link key={item.href} href={item.href} {...(current ? { 'aria-current': 'page' } : {})}>
             {item[lang]}

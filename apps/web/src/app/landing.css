@@ -1,0 +1,458 @@
+/*
+ * The landing page.
+ *
+ * Same product as the dashboard and the projector screen, one scale up. The
+ * three share two Cyrillic-native faces (Golos Text for people, Plex Mono for
+ * machine values) and one accent, the electric signal blue. Nothing here
+ * introduces a second visual language: a landing page that looks like a
+ * different company from the app behind it is a lie told in CSS.
+ *
+ * COMMITTED TO LIGHT, deliberately. The dashboard and the demo screen are
+ * light-only because they are read in a clinic and thrown at a projector, and
+ * a landing page that flips to dark on half the machines that open it would
+ * break the "same product" claim it exists to make. So there is no dark block
+ * here, and every colour is stated rather than inherited.
+ *
+ * Scale sits between the two: 16px base against the dashboard's 14px, because
+ * this is read once by someone standing up, not all day by someone leaning in.
+ */
+
+.landing {
+  /* Identical tokens to dashboard.css. Same names on purpose: the two files
+     should be diffable, and a divergence should be visible as a divergence. */
+  --paper: #f6f7f9;
+  --card: #ffffff;
+  --ink: #0b0f19;
+  --ink-soft: #5b6376;
+  --ink-faint: #8b91a1;
+  --rule: #e4e7ee;
+  --rule-strong: #d3d8e3;
+
+  --signal: #1b34ff;
+  --signal-ink: #ffffff;
+  --signal-wash: #eef0ff;
+
+  /* One radius scale for the whole page. Mixed corner systems read as broken
+     rather than as variety. */
+  --radius: 10px;
+  --radius-lg: 16px;
+
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-golos), ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/*
+ * Buttons state their own colour, and must out-specify the reset above.
+ *
+ * `.landing a` is (0,1,1) and beat the plain `.lp-btn-primary` (0,1,0), so
+ * every anchor styled as a button inherited its surrounding text colour: the
+ * hero CTA rendered near-black on saturated blue, and the sign-in CTA rendered
+ * blue on blue and was completely invisible. Measured in the browser, not read
+ * off the stylesheet, because both looked correct in source.
+ */
+.landing .lp-btn-primary {
+  color: var(--signal-ink);
+}
+.landing .lp-nav-signin {
+  color: var(--ink);
+}
+
+.landing :focus-visible {
+  outline: 3px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- nav ------------------------------------------------------------------ */
+
+.lp-nav {
+  height: 68px; /* capped well under 80: a nav is not a section */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 clamp(1rem, 4vw, 2.5rem);
+  border-bottom: 1px solid var(--rule);
+  background: var(--card);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 1.05rem;
+}
+
+.lp-brand {
+  color: var(--signal);
+  --logo-knockout: var(--card);
+}
+.lp-brand .wordmark > span {
+  color: var(--ink);
+}
+
+.lp-nav nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  white-space: nowrap; /* the nav stays on one line at every width */
+}
+
+.lp-nav-phone {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.lp-nav-phone:hover {
+  color: var(--ink);
+}
+
+.lp-nav-signin {
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.5rem 0.95rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.lp-nav-signin:hover {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+}
+
+/* --- hero ----------------------------------------------------------------- */
+
+.lp-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+  max-width: 78rem;
+  width: 100%;
+  margin: 0 auto;
+  /* Capped: more top padding and the hero floats down the viewport and reads
+     as a layout bug rather than as space. */
+  padding: clamp(2.5rem, 6vw, 5rem) clamp(1rem, 4vw, 2.5rem) clamp(3rem, 7vw, 5.5rem);
+}
+
+.lp-hero h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 5.2vw, 3.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+  text-wrap: balance;
+}
+
+.lp-lede {
+  margin: 1.1rem 0 0;
+  max-width: 34ch;
+  font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+  color: var(--ink-soft);
+}
+
+.lp-cta {
+  margin-top: 1.9rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.lp-cta-number {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap; /* a CTA that wraps to two lines is a broken button */
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.8rem 1.4rem;
+  border-radius: var(--radius);
+  transition: transform 0.12s ease, background 0.18s ease;
+}
+
+.lp-btn-primary {
+  background: var(--signal);
+  color: var(--signal-ink); /* white on #1b34ff, comfortably past AA */
+}
+.lp-btn-primary:hover {
+  background: #1329d6;
+}
+/* Tactile: the button gives under the press rather than only changing colour. */
+.lp-btn-primary:active {
+  transform: translateY(1px);
+}
+
+/* --- the transcript ------------------------------------------------------- */
+
+.lp-exchange {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgb(11 15 25 / 0.04), 0 12px 32px rgb(11 15 25 / 0.06);
+}
+
+.lp-exchange-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 1rem;
+}
+
+/*
+ * The one coloured dot on the page, and it carries meaning rather than
+ * decoration: this transcript is a real call, not a mock-up.
+ */
+.lp-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal);
+}
+
+.lp-exchange ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.lp-exchange li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-width: 88%;
+}
+.lp-exchange li[data-who='caller'] {
+  align-self: flex-start;
+}
+.lp-exchange li[data-who='agent'] {
+  align-self: flex-end;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.lp-bubble {
+  display: inline-block;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+li[data-who='caller'] .lp-bubble {
+  background: #eff1f5;
+  color: var(--ink);
+  border-bottom-left-radius: 3px;
+}
+li[data-who='agent'] .lp-bubble {
+  background: var(--signal);
+  color: var(--signal-ink);
+  border-bottom-right-radius: 3px;
+}
+
+/* The machine's own vocabulary, in the machine's own face. */
+.lp-tool {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+/* --- the band ------------------------------------------------------------- */
+
+.lp-band {
+  background: var(--card);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: clamp(3rem, 7vw, 5rem) clamp(1rem, 4vw, 2.5rem);
+}
+
+.lp-band h2 {
+  max-width: 78rem;
+  margin: 0 auto;
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.lp-band-grid {
+  max-width: 78rem;
+  margin: 2.25rem auto 0;
+  display: grid;
+  /* Asymmetric on purpose. Three equal columns is the default answer to
+     "we have three things" and reads as a template. */
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: clamp(1.5rem, 3vw, 3rem);
+}
+
+.lp-band-grid p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.99rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--ink);
+}
+.lp-band-grid strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --- the numbers ---------------------------------------------------------- */
+
+.lp-facts {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5rem) clamp(1rem, 4vw, 2.5rem);
+}
+
+.lp-facts dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1.5rem, 3vw, 3rem);
+}
+
+.lp-facts dt {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.lp-facts dd {
+  margin: 0.35rem 0 0.5rem;
+  font-size: clamp(2.2rem, 5vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--signal);
+}
+
+.lp-facts p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+/* --- sign in -------------------------------------------------------------- */
+
+.lp-signin {
+  padding: 0 clamp(1rem, 4vw, 2.5rem) clamp(3rem, 7vw, 5rem);
+}
+
+.lp-signin-card {
+  --logo-knockout: var(--card);
+  max-width: 34rem;
+  margin: 0 auto;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: clamp(2rem, 5vw, 2.75rem);
+  color: var(--signal);
+}
+
+.lp-signin-card h2 {
+  margin: 0.9rem 0 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.lp-signin-card > p {
+  margin: 0.6rem auto 1.5rem;
+  max-width: 34ch;
+  color: var(--ink-soft);
+  font-size: 0.98rem;
+}
+
+.lp-fine {
+  margin: 1.25rem auto 0 !important;
+  font-size: 0.88rem !important;
+  color: var(--ink-faint) !important;
+}
+
+/* --- footer --------------------------------------------------------------- */
+
+.lp-foot {
+  --logo-knockout: var(--card);
+  margin-top: auto;
+  border-top: 1px solid var(--rule);
+  background: var(--card);
+  padding: 1.75rem clamp(1rem, 4vw, 2.5rem);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: var(--signal);
+}
+.lp-foot p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.9rem;
+}
+.lp-foot .wordmark > span {
+  color: var(--ink);
+}
+
+/* --- mobile --------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .lp-hero {
+    grid-template-columns: 1fr;
+    gap: 2.25rem;
+  }
+  .lp-band-grid,
+  .lp-facts dl {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .lp-exchange li {
+    max-width: 95%;
+  }
+}
+
+@media (max-width: 520px) {
+  .lp-nav-phone {
+    display: none; /* the hero carries the number; the nav stays one line */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

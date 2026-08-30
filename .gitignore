@@ -20,3 +20,6 @@ Thumbs.db
 .vscode/
 .idea/
 coverage/
+
+# playwright-cli session artefacts
+.playwright-cli/

@@ -16,6 +16,7 @@ import type { Lang } from './session';
 export const DICT = {
   // --- navigation
   today: { mk: 'Денес', en: 'Today' },
+  welcome: { mk: 'Добредојде', en: 'Welcome' },
   conversations: { mk: 'Разговори', en: 'Conversations' },
   calendar: { mk: 'Календар', en: 'Calendar' },
   settings: { mk: 'Поставки', en: 'Settings' },

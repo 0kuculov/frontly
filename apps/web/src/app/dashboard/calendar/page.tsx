@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { apiGet, type DashboardAppointment } from '../../../lib/api';
 import { DAY_KEYS, dayLabel, formatTime, translator } from '../../../lib/i18n';
 import { getLang } from '../../../lib/session';
+import { AutoRefresh } from '../auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,7 @@ export default async function CalendarPage({
 
   return (
     <>
+      <AutoRefresh />
       <div className="page-head">
         <div>
           <h1>{t('calendar')}</h1>

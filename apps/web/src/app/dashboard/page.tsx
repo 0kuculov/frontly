@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { apiGet, type DashboardAppointment, type TodayResponse } from '../../lib/api';
 import { formatDuration, formatTime, outcomeLabel, translator } from '../../lib/i18n';
 import { getLang } from '../../lib/session';
+import { AutoRefresh } from './auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export default async function TodayPage() {
 
   return (
     <>
+      <AutoRefresh />
       <div className="page-head">
         <div>
           {/*

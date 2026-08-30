@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { apiGet, type DashboardConversation, type SettingsResponse } from '../../../lib/api';
 import { formatDuration, formatTime, outcomeLabel, translator } from '../../../lib/i18n';
 import { getLang } from '../../../lib/session';
+import { AutoRefresh } from '../auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export default async function ConversationsPage() {
 
   return (
     <>
+      <AutoRefresh />
       <div className="page-head">
         <div>
           <h1>{t('allConversations')}</h1>

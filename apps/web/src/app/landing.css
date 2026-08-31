@@ -20,22 +20,7 @@
 .landing {
   /* Identical tokens to dashboard.css. Same names on purpose: the two files
      should be diffable, and a divergence should be visible as a divergence. */
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #14120f;
-  --ink-soft: #5c574e;
-  --ink-faint: #8a8378;
-  --rule: #ebe5da;
-  --rule-strong: #dbd3c4;
 
-  --signal: #1b34ff;
-  --signal-ink: #ffffff;
-  --signal-wash: #eceeff;
-
-  /* One radius scale for the whole page. Mixed corner systems read as broken
-     rather than as variety. */
-  --radius: 10px;
-  --radius-lg: 16px;
 
   min-height: 100dvh;
   background: var(--paper);
@@ -72,7 +57,7 @@
 .landing :focus-visible {
   outline: 3px solid var(--signal);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 /* --- nav ------------------------------------------------------------------ */
@@ -147,7 +132,7 @@
 .lp-lang {
   display: inline-flex;
   border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -196,7 +181,7 @@
   font-size: 0.95rem;
   padding: 0.5rem 0.95rem;
   border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
+  border-radius: 0;
   transition: border-color 0.18s ease, background 0.18s ease;
 }
 .lp-nav-signin:hover {
@@ -206,47 +191,99 @@
 
 /* --- hero ----------------------------------------------------------------- */
 
+/*
+ * The hero is a board with one departure on it.
+ *
+ * The whole product is a phone number that answers. So the number is not a
+ * detail beside a button — it IS the hero, set in the machine face at display
+ * size, on its own ruled row the way a single departure sits on a station
+ * board. Everything above it is a label and everything below it is proof.
+ */
 .lp-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: clamp(2rem, 5vw, 4.5rem);
-  align-items: center;
+  align-items: start;
+  /* Same inset as every other band on the page. The first cut of this rule
+     zeroed the horizontal padding and the hero ran off the left edge — the
+     page's margin is a shared constant, not a per-section decision. */
+  padding: clamp(2.5rem, 6vw, 5rem) clamp(1rem, 4vw, 2.5rem) clamp(2.5rem, 5vw, 4rem);
   max-width: 78rem;
   width: 100%;
   margin: 0 auto;
-  /* Capped: more top padding and the hero floats down the viewport and reads
-     as a layout bug rather than as space. */
-  padding: clamp(2.5rem, 6vw, 5rem) clamp(1rem, 4vw, 2.5rem) clamp(3rem, 7vw, 5.5rem);
+}
+
+.lp-eyebrow {
+  margin: 0 0 1.25rem;
 }
 
 .lp-hero h1 {
-  margin: 0;
-  font-size: clamp(2.1rem, 5.2vw, 3.5rem);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
+  font-size: clamp(2.4rem, 5.2vw, 4rem);
   font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.038em;
+  margin: 0;
   text-wrap: balance;
 }
 
 .lp-lede {
-  margin: 1.1rem 0 0;
-  max-width: 34ch;
-  font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+  font-size: clamp(1rem, 1.35vw, 1.15rem);
   color: var(--ink-soft);
+  max-width: 34ch;
+  margin: 1.25rem 0 0;
+}
+
+/*
+ * The departure row.
+ *
+ * Ink rule above, hairline below, the number filling the width in tabular
+ * figures. It is a link, because on a phone the whole row should dial.
+ */
+.lp-dial {
+  display: block;
+  margin-top: clamp(1.75rem, 3vw, 2.5rem);
+  border-top: 2px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.75rem 0 0.875rem;
+  text-decoration: none;
+}
+
+.landing .lp-dial {
+  color: var(--signal);
+}
+
+.lp-dial-number {
+  display: block;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(1.9rem, 4.4vw, 3.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.lp-dial-note {
+  display: block;
+  margin-top: 0.5rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.lp-dial:hover .lp-dial-number {
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
 }
 
 .lp-cta {
-  margin-top: 1.9rem;
   display: flex;
   align-items: center;
   gap: 1rem;
+  margin-top: 1.5rem;
   flex-wrap: wrap;
-}
-
-.lp-cta-number {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.95rem;
-  color: var(--ink-faint);
 }
 
 .lp-btn {
@@ -257,7 +294,7 @@
   font-weight: 600;
   font-size: 1rem;
   padding: 0.8rem 1.4rem;
-  border-radius: var(--radius);
+  border-radius: 0;
   transition: transform 0.12s ease, background 0.18s ease;
 }
 
@@ -275,26 +312,32 @@
 
 /* --- the transcript ------------------------------------------------------- */
 
+/*
+ * A log, not a chat.
+ *
+ * This was two columns of coloured bubbles, which is what every AI product on
+ * the internet shows and which says "chatbot" — the one thing this product is
+ * not. As a ruled log with the speaker in the margin it says "transcript of a
+ * phone call", which is what it actually is, and it matches the board the
+ * dashboard is built from.
+ */
 .lp-exchange {
+  border-top: 2px solid var(--ink);
   background: var(--card);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  box-shadow: 0 1px 2px rgb(11 15 25 / 0.04), 0 12px 32px rgb(11 15 25 / 0.06);
 }
 
 .lp-exchange-head {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   color: var(--ink-faint);
-  padding-bottom: 0.9rem;
-  border-bottom: 1px solid var(--rule);
-  margin-bottom: 1rem;
 }
 
 /*
@@ -312,50 +355,70 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
 }
 
+/*
+ * A log, not a chat.
+ *
+ * This was two columns of coloured bubbles — the exact thing every AI product
+ * on the internet shows, and it says "chatbot", which is the one thing this
+ * product is not. As a ruled log with the speaker in the margin it says
+ * "transcript of a phone call", which is what it actually is, and it is built
+ * from the same rows as the dashboard's board.
+ */
 .lp-exchange li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  max-width: 88%;
-}
-.lp-exchange li[data-who='caller'] {
-  align-self: flex-start;
-}
-.lp-exchange li[data-who='agent'] {
-  align-self: flex-end;
-  align-items: flex-end;
-  text-align: right;
-}
-
-.lp-bubble {
-  display: inline-block;
-  padding: 0.55rem 0.8rem;
-  border-radius: var(--radius);
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
   font-size: 0.9rem;
   line-height: 1.45;
 }
-li[data-who='caller'] .lp-bubble {
-  background: #eff1f5;
-  color: var(--ink);
-  border-bottom-left-radius: 3px;
+
+.lp-exchange li:last-child {
+  border-bottom: 0;
 }
-li[data-who='agent'] .lp-bubble {
-  background: var(--signal);
-  color: var(--signal-ink);
-  border-bottom-right-radius: 3px;
+
+/* Who spoke, in the margin, in the machine face. */
+.lp-exchange li::before {
+  content: attr(data-speaker);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-top: 0.25em;
+}
+
+/* The agent's turns are the product speaking, so the margin carries the accent
+   and the row sits on card white; the caller's sit on paper. Two surfaces, no
+   coloured bubbles. */
+.lp-exchange li[data-who='agent'] {
+  background: var(--card);
+}
+
+.lp-exchange li[data-who='agent']::before {
+  color: var(--signal);
+}
+
+.lp-exchange li[data-who='caller'] {
+  background: var(--paper);
+}
+
+.lp-bubble {
+  display: block;
 }
 
 /* The machine's own vocabulary, in the machine's own face. */
 .lp-tool {
+  display: block;
+  margin-top: 0.3rem;
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  color: var(--signal);
 }
 
 /* --- the band ------------------------------------------------------------- */
@@ -449,7 +512,7 @@ li[data-who='agent'] .lp-bubble {
   text-align: center;
   background: var(--card);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
   padding: clamp(2rem, 5vw, 2.75rem);
   color: var(--signal);
 }

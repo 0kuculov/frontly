@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
 /*
  * The only global rules. Every screen brings its own stylesheet — landing.css,
@@ -29,8 +30,8 @@ body {
  * the ground, where it costs nothing.
  */
 body {
-  background: #faf7f2;
-  color: #14120f;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 /*

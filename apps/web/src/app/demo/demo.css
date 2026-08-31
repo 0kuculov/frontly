@@ -14,14 +14,7 @@
  */
 
 .stage {
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #14120f;
-  --ink-soft: #5c574e;
-  --signal: #1b34ff;
-  --signal-ink: #ffffff;
   --live: #d40000;
-  --rule: #dbd3c4;
 
   --gap: clamp(1rem, 2.2vw, 2.25rem);
 
@@ -111,7 +104,7 @@
   color: var(--ink-soft);
   padding: 0.35em 0.8em;
   border: 2px solid var(--rule);
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .link[data-state='down'] {
@@ -129,7 +122,7 @@
   color: var(--ink);
   background: var(--card);
   border: 2px solid var(--ink);
-  border-radius: 2px;
+  border-radius: 0;
   padding: 0.6em 1.2em;
   cursor: pointer;
 }
@@ -226,7 +219,7 @@
   background: var(--signal);
   color: var(--signal-ink);
   padding: clamp(1rem, 2vw, 1.9rem) var(--gap);
-  border-radius: 3px;
+  border-radius: 0;
   display: flex;
   align-items: baseline;
   gap: clamp(0.8rem, 2vw, 1.8rem);

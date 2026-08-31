@@ -1,0 +1,116 @@
+/*
+ * ONE palette, one scale, three surfaces.
+ *
+ * The organising idea is a departures board. A station timetable is the one
+ * piece of public design that is dense, unambiguous, and legible from ten
+ * metres AND from forty centimetres — and it is made entirely of ruled rows,
+ * tabular numerals and terse labels. No cards, no shadows, no decoration,
+ * because somebody has to find one row fast. That is exactly what this product
+ * produces: rows of times with a name against them. It is also what the object
+ * it replaces looks like, which is a ruled paper appointment book.
+ *
+ * So: the dashboard is the board at desk scale, /demo is the same board at
+ * platform scale, and the landing page is the board with one departure on it.
+ *
+ * These tokens live on :root rather than on `.app`, `.landing`, `.stage` and
+ * `.login` separately, which is how they used to be defined. Four copies of a
+ * palette is four palettes waiting to drift — the demo screen already had its
+ * own paper (#f4f6f9) and its own ink (#080d1a), one shade off the dashboard's
+ * for no reason anybody could name. Surfaces now set only their SCALE.
+ *
+ * References, honestly: the structure is IBM Carbon's (4px grid, zero radius,
+ * hairlines and surface changes instead of shadows, exactly one chromatic
+ * accent, no atmospheric depth) and the density is WIRED's (rows separated by
+ * hairlines rather than by gaps; the accent kept out of navigation). What is
+ * NOT taken from Carbon: its typeface, its weight-300 display, and its rule
+ * that eyebrows are sentence case — the tracked uppercase mono label is the
+ * timetable voice here, and it is the thing that keeps this from reading as a
+ * Carbon clone.
+ */
+
+:root {
+  /* --- ground and ink ---------------------------------------------------- */
+
+  /* Warm paper, not cool grey: this replaces a paper appointment book, and
+     the warmth is where the pink-orange reference ended up — in the ground,
+     where it costs nothing, rather than in the accent, where it would cost
+     contrast and band on a projector. */
+  --paper: #faf7f2;
+  --card: #ffffff;
+
+  --ink: #14120f;
+  --ink-soft: #5c574e; /* 6.7:1 on paper */
+  --ink-faint: #8a8378; /* 3.6:1 — labels and meta, never body text */
+
+  /* Two rules and they do different jobs. The hairline separates rows; the
+     ink rule ends a section. Carbon calls the second one hairline-strong and
+     makes it the ink itself, which is why a page head reads as a masthead. */
+  --rule: #e7e0d4;
+  --rule-strong: #dbd3c4;
+  --rule-ink: var(--ink);
+
+  /* --- the one accent ---------------------------------------------------- */
+  --signal: #1b34ff;
+  --signal-ink: #ffffff;
+  --signal-wash: #eceeff;
+
+  /* --- status, which must survive being glanced at ----------------------- */
+  --booked: #0f7a52;
+  --booked-wash: #e4f1ea;
+  --info: #2f4a7a;
+  --info-wash: #e9edf5;
+  --transferred: #8a5200;
+  --transferred-wash: #f7eedc;
+  --abandoned: #6e6a62;
+  --abandoned-wash: #edeae3;
+  --danger: #a3231d;
+  --danger-wash: #f8e9e7;
+
+  /* --- spacing: Carbon's 4px grid --------------------------------------- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 96px;
+
+  /* --- shape ------------------------------------------------------------- */
+  /*
+   * Zero. Every button, input, row and panel.
+   *
+   * This is the single change that carries the most of the look. Rounded
+   * cards with soft borders are the generated-admin-panel signature; squared
+   * and ruled is print. Carbon's own note is that even 4px breaks it, and
+   * that is right — a 4px radius reads as an app trying to be friendly, which
+   * is the opposite of a timetable's promise.
+   */
+  --radius: 0;
+
+  /* --- the label voice ---------------------------------------------------- */
+  /*
+   * Every structural label in the product is this: mono, small, uppercase,
+   * widely tracked. It is the timetable's own voice, and it is the reason the
+   * old dashboard read flat — every label was 12px Golos in grey, which said
+   * nothing and looked like a placeholder.
+   */
+  --label-size: 0.6875rem;
+  --label-track: 0.14em;
+}
+
+/*
+ * The label, as a class, because it is used on h2, on table headers, on
+ * fieldset legends and on field labels, and those cannot share a selector.
+ */
+.label,
+.app h2,
+.landing .lp-eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0;
+}

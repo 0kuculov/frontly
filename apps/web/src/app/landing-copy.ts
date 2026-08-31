@@ -13,6 +13,10 @@ import type { Lang } from '../lib/lang';
  */
 
 export interface LandingCopy {
+  /** Mono label over the headline: who this is for. */
+  eyebrow: string;
+  /** Under the number: what happens if you dial it. */
+  dialNote: string;
   navPhone: string;
   navSignIn: string;
   /** Two lines, and they are two lines on purpose — see the <br> in the page. */
@@ -38,22 +42,24 @@ export interface LandingCopy {
 
 export const LANDING: Record<Lang, LandingCopy> = {
   mk: {
+    eyebrow: 'Ординации · Салони · Автосервиси',
+    dialNote: 'Јавете се сега — ќе одговори Frontly, на македонски',
     navPhone: 'Телефон',
     navSignIn: 'Најава',
-    headline: ['Вашата ординација', 'не пропушта повик.'],
-    lede: 'Frontly се јавува, разбира македонски и закажува во вашиот календар. Секој ден, во секое време.',
+    headline: ['Секој пропуштен повик', 'е изгубен термин.'],
+    lede: 'Frontly се јавува кога вие не можете, разбира македонски и закажува во вашиот календар. Без говорна пошта и без пропуштени клиенти.',
     cta: 'Јавете се и пробајте',
     exchangeLabel: 'Вистински повик',
     bandTitle: 'Ѕвони. Одговара. Закажува.',
     band: [
       [
         'Се јавува на првото ѕвонење',
-        ', дури и кога сте со пациент, во сабота или во три наутро.',
+        ', дури и кога сте со клиент, во сабота или во три наутро.',
         '',
       ],
       [
         'Проверува вистински слободни термини',
-        ' според работното време, услугата и кој доктор ја работи.',
+        ' според работното време, услугата и кој од вработените ја работи.',
         '',
       ],
       ['Го прочитува бројот назад', ' цифра по цифра и чека потврда пред да закажe.', ''],
@@ -63,31 +69,33 @@ export const LANDING: Record<Lang, LandingCopy> = {
       ['Достапност', '24/7', 'Без пропуштен повик и без говорна пошта.'],
       ['Цена по разговор', '$0.39', 'Измерено на вистински повик, не проценето.'],
     ],
-    signInTitle: 'Веќе имате ординација кај нас?',
+    signInTitle: 'Веќе работите со нас?',
     signInBody:
-      'Влезете во таблата за да ги видите повиците, термините и што кажал секој пациент.',
+      'Влезете во таблата за да ги видите повиците, термините и што кажал секој клиент.',
     signInCta: 'Најава',
-    newClinic: (phone) => `Нова ординација? Јавете се на ${phone} и ве поставуваме ние.`,
-    footer: 'Виртуелен рецепционер за мали ординации во Северна Македонија.',
+    newClinic: (phone) => `Нов бизнис? Јавете се на ${phone} и ве поставуваме ние.`,
+    footer: 'Виртуелен рецепционер за мали бизниси во Северна Македонија.',
   },
 
   sq: {
+    eyebrow: 'Klinika · Sallone · Autoservise',
+    dialNote: 'Telefononi tani — përgjigjet Frontly, në maqedonisht',
     navPhone: 'Telefoni',
     navSignIn: 'Hyrje',
-    headline: ['Klinika juaj', 'nuk humb asnjë telefonatë.'],
-    lede: 'Frontly përgjigjet, kupton shqip dhe rezervon në kalendarin tuaj. Çdo ditë, në çdo orë.',
+    headline: ['Çdo telefonatë e humbur', 'është një termin i humbur.'],
+    lede: 'Frontly përgjigjet kur ju nuk mundeni, kupton shqip dhe rezervon në kalendarin tuaj. Pa postë zanore dhe pa klientë të humbur.',
     cta: 'Telefononi dhe provojeni',
     exchangeLabel: 'Telefonatë e vërtetë (maqedonisht)',
     bandTitle: 'Bie. Përgjigjet. Rezervon.',
     band: [
       [
         'Përgjigjet që në ziljen e parë',
-        ', edhe kur jeni me një pacient, të shtunën ose në tre të mëngjesit.',
+        ', edhe kur jeni me një klient, të shtunën ose në tre të mëngjesit.',
         '',
       ],
       [
         'Kontrollon orare vërtet të lira',
-        ' sipas orarit të punës, shërbimit dhe mjekut që e kryen.',
+        ' sipas orarit të punës, shërbimit dhe personit që e kryen.',
         '',
       ],
       ['E lexon numrin mbrapsht', ' shifër për shifër dhe pret konfirmim para se të rezervojë.', ''],
@@ -97,27 +105,29 @@ export const LANDING: Record<Lang, LandingCopy> = {
       ['Disponueshmëri', '24/7', 'Asnjë telefonatë e humbur, asnjë postë zanore.'],
       ['Kosto për bisedë', '$0.39', 'E matur në një telefonatë reale, jo e vlerësuar.'],
     ],
-    signInTitle: 'Keni tashmë një klinikë me ne?',
+    signInTitle: 'Punoni tashmë me ne?',
     signInBody:
-      'Hyni në panel për të parë telefonatat, terminet dhe çfarë tha secili pacient.',
+      'Hyni në panel për të parë telefonatat, terminet dhe çfarë tha secili klient.',
     signInCta: 'Hyrje',
-    newClinic: (phone) => `Klinikë e re? Telefononi ${phone} dhe ju rregullojmë ne.`,
-    footer: 'Recepsionist virtual për klinika të vogla në Maqedoninë e Veriut.',
+    newClinic: (phone) => `Biznes i ri? Telefononi ${phone} dhe ju rregullojmë ne.`,
+    footer: 'Recepsionist virtual për biznese të vogla në Maqedoninë e Veriut.',
   },
 
   en: {
+    eyebrow: 'Clinics · Salons · Auto services',
+    dialNote: 'Call now — Frontly answers, in Macedonian',
     navPhone: 'Phone',
     navSignIn: 'Sign in',
-    headline: ['Your clinic never', 'misses a call.'],
-    lede: 'Frontly answers, understands Macedonian and books into your calendar. Every day, at any hour.',
+    headline: ['Every missed call', 'is a lost booking.'],
+    lede: 'Frontly answers when you cannot, understands Macedonian and books into your calendar. No voicemail, no lost customers.',
     cta: 'Call it and see',
     exchangeLabel: 'A real call (in Macedonian)',
     bandTitle: 'Rings. Answers. Books.',
     band: [
-      ['Answers on the first ring', ', even mid-patient, on a Saturday, or at three in the morning.', ''],
+      ['Answers on the first ring', ', even mid-customer, on a Saturday, or at three in the morning.', ''],
       [
         'Checks genuinely free times',
-        ' against opening hours, the service, and which dentist performs it.',
+        ' against opening hours, the service, and who performs it.',
         '',
       ],
       ['Reads the number back', ' digit by digit and waits for confirmation before booking.', ''],
@@ -127,10 +137,10 @@ export const LANDING: Record<Lang, LandingCopy> = {
       ['Availability', '24/7', 'No missed calls and no voicemail.'],
       ['Cost per conversation', '$0.39', 'Measured on a real call, not estimated.'],
     ],
-    signInTitle: 'Already have a clinic with us?',
-    signInBody: 'Sign in to see the calls, the appointments, and what every patient said.',
+    signInTitle: 'Already working with us?',
+    signInBody: 'Sign in to see the calls, the appointments, and what every customer said.',
     signInCta: 'Sign in',
-    newClinic: (phone) => `New clinic? Call ${phone} and we will set you up.`,
-    footer: 'A virtual receptionist for small clinics in North Macedonia.',
+    newClinic: (phone) => `New business? Call ${phone} and we will set you up.`,
+    footer: 'A virtual receptionist for small businesses in North Macedonia.',
   },
 };

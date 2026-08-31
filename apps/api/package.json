@@ -24,7 +24,8 @@
     "load:test": "tsx scripts/load-test.ts",
     "probe:concurrency": "tsx scripts/probe-concurrency.ts",
     "probe:tools": "tsx scripts/probe-tools.ts",
-    "follow-up": "tsx scripts/follow-up.ts"
+    "follow-up": "tsx scripts/follow-up.ts",
+    "seed:demo-day": "tsx scripts/seed-demo-day.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

@@ -23,29 +23,11 @@
 .app {
   /* Cool near-white. Not the cyan tint the palette search suggested — pleasant
      in a swatch, fatiguing on a screen open all day — and not cream. */
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #14120f;
-  --ink-soft: #5c574e;
-  --ink-faint: #8a8378;
-  --rule: #ebe5da;
-  --rule-strong: #dbd3c4;
 
   /* Shared with the stage screen. The one piece of colour identity. */
-  --signal: #1b34ff;
-  --signal-wash: #eceeff;
 
-  --booked: #0f7a52;
-  --booked-wash: #e6f2ec;
-  --info: #3a4a6b;
-  --info-wash: #efeee9;
-  --transferred: #9a5b00;
-  --transferred-wash: #f8efdd;
-  --abandoned: #7b8194;
-  --abandoned-wash: #efece5;
 
   --sidebar: 15rem;
-  --radius: 8px;
 
   min-height: 100dvh;
   display: grid;
@@ -90,10 +72,10 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.5rem;
+  gap: var(--s2);
+  padding: 0 var(--s3) var(--s4);
+  border-bottom: 1px solid var(--rule);
   color: var(--signal);
-  --logo-knockout: var(--card);
 }
 
 .brand-name {
@@ -119,25 +101,34 @@
   }
 }
 
+/*
+ * The index down the side of the sheet.
+ *
+ * The current page used to be a tinted pill — which is the default control in
+ * every generated admin panel, and which spends the accent colour on
+ * navigation, the one place WIRED's system explicitly keeps it out of. It is
+ * now a 2px ink bar in the margin: the printed way of marking your place, and
+ * it leaves the accent free for the things you can actually act on.
+ */
 .nav a {
   display: block;
-  padding: 0.5rem 0.625rem;
-  border-radius: 6px;
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid transparent;
   color: var(--ink-soft);
   text-decoration: none;
   font-weight: 500;
-  transition: background 160ms ease, color 160ms ease;
+  transition: color 140ms ease, border-color 140ms ease;
 }
 
 .nav a:hover {
-  background: var(--paper);
   color: var(--ink);
+  border-left-color: var(--rule-strong);
 }
 
 .nav a[aria-current='page'] {
-  background: var(--signal-wash);
-  color: var(--signal);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 700;
+  border-left-color: var(--ink);
 }
 
 .side-foot {
@@ -159,7 +150,7 @@
 .lang {
   display: inline-flex;
   border: 1px solid var(--rule-strong);
-  border-radius: 999px;
+  border-radius: 0;
   overflow: hidden;
   align-self: flex-start;
 }
@@ -206,34 +197,57 @@
   width: 100%;
 }
 
+/*
+ * The masthead.
+ *
+ * A 2px ink rule under the title, not a hairline: this is the one place on the
+ * page where the weight is structural rather than separating, and it is what
+ * makes the page read as a printed sheet with a heading rather than as a div
+ * with text in it. Carbon calls this token hairline-strong and sets it to the
+ * ink itself; that is the right instinct and it costs one line.
+ */
 .page-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--s4);
   flex-wrap: wrap;
-  margin-bottom: 1.5rem;
+  padding-bottom: var(--s4);
+  border-bottom: 2px solid var(--rule-ink);
+  margin-bottom: var(--s5);
 }
 
 h1 {
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
   margin: 0;
 }
 
 .page-sub {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
   color: var(--ink-soft);
-  margin: 0.25rem 0 0;
+  margin: var(--s2) 0 0;
 }
 
+/*
+ * Section headings are the timetable's column labels, not headings in the
+ * document sense: mono, small, uppercase, widely tracked. They were 12px Golos
+ * in grey, which is what a placeholder looks like, and it was the single
+ * biggest reason this page read flat.
+ */
 h2 {
-  font-size: 0.75rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   color: var(--ink-faint);
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--rule);
 }
 
 /* --- the numbers ---------------------------------------------------------- */
@@ -257,9 +271,9 @@ h2 {
   align-items: baseline;
   gap: clamp(1.25rem, 4vw, 3rem);
   flex-wrap: wrap;
-  padding-bottom: 1.5rem;
+  padding-bottom: var(--s5);
   border-bottom: 1px solid var(--rule);
-  margin-bottom: 2rem;
+  margin-bottom: var(--s6);
 }
 
 .figure-lead {
@@ -379,16 +393,18 @@ h2 {
   min-width: 0;
 }
 
+/* The time gutter IS the axis. Bigger than the body text on purpose: on a
+   board you find the row by its time, then read across. */
 .slot-time {
   position: absolute;
   left: -4.5rem;
-  top: 0.7rem;
+  top: 0.6rem;
   width: 3rem;
   text-align: right;
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
@@ -413,20 +429,26 @@ h2 {
   opacity: 0.55;
 }
 
+/*
+ * A row on the board, not a card on a page.
+ *
+ * This was a bordered box per patient, which made the day read as a stack of
+ * separate objects — and four boxes in a column is what an admin panel looks
+ * like. A rule under each row, no sides, no top: the day is one thing, divided.
+ */
 .slot-card {
   background: var(--card);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  padding: 0.75rem 0.875rem;
+  border-bottom: 1px solid var(--rule);
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
   display: flex;
   align-items: baseline;
-  gap: 0.75rem;
+  gap: var(--s3);
   flex-wrap: wrap;
 }
 
 .slot-name {
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .slot-service {
@@ -472,7 +494,12 @@ h2 {
   );
 }
 
+/* The gap between patients is machine-measured, so it speaks in the machine
+   face like every other number on the board. */
 .gap-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
   font-size: 0.75rem;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -529,7 +556,7 @@ h2 {
   align-items: center;
   gap: 0.375rem;
   padding: 0.125rem 0.5rem 0.125rem 0.375rem;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -558,7 +585,7 @@ h2 {
 }
 /* square */
 .badge[data-outcome='info']::before {
-  border-radius: 1px;
+  border-radius: 0;
 }
 
 .badge[data-outcome='transferred'] {
@@ -585,16 +612,22 @@ h2 {
 .badge[data-outcome='open']::before {
   height: 2px;
   width: 8px;
-  border-radius: 1px;
+  border-radius: 0;
 }
 
 /* --- tables --------------------------------------------------------------- */
 
+/*
+ * A panel is a ruled block on the paper, not a floating card.
+ *
+ * Top and bottom rules only. Boxing the sides as well makes every region look
+ * like a separate object; a timetable's blocks are divided by lines across the
+ * sheet, which is what tells you they belong to the same sheet.
+ */
 .panel {
   background: var(--card);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  overflow: hidden;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 
 table {
@@ -602,20 +635,22 @@ table {
   border-collapse: collapse;
 }
 
+/* Column headers in the label voice, over the ink rule that opens the block. */
 thead th {
   text-align: left;
-  font-size: 0.6875rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
   font-weight: 600;
-  letter-spacing: 0.07em;
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   color: var(--ink-faint);
-  padding: 0.625rem 1rem;
-  border-bottom: 1px solid var(--rule);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--rule-ink);
   white-space: nowrap;
 }
 
 tbody td {
-  padding: 0.6875rem 1rem;
+  padding: var(--s3);
   border-bottom: 1px solid var(--rule);
   vertical-align: middle;
 }
@@ -624,8 +659,20 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+/* The hovered row is the one your eye is on: it changes surface, the way an
+   alternate row does in Carbon, rather than lighting up. */
 tbody tr:hover {
   background: var(--paper);
+}
+
+/* Times are the primary data on every screen here, so they are set in the
+   machine face with tabular figures and never wrap. */
+tbody td:first-child {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
 }
 
 .row-link {
@@ -692,7 +739,7 @@ tbody tr:hover {
   font-size: 0.75rem;
   color: var(--signal);
   background: var(--signal-wash);
-  border-radius: 5px;
+  border-radius: 0;
   padding: 0.25rem 0.5rem;
   margin-top: 0.375rem;
 }
@@ -705,7 +752,7 @@ tbody tr:hover {
   gap: 1px;
   background: var(--rule);
   border: 1px solid var(--rule);
-  border-radius: var(--radius);
+  border-radius: 0;
   overflow: hidden;
   min-width: 60rem;
 }
@@ -754,7 +801,7 @@ tbody tr:hover {
 .chip {
   border-left: 2px solid var(--signal);
   background: var(--paper);
-  border-radius: 0 5px 5px 0;
+  border-radius: 0;
   padding: 0.3125rem 0.5rem;
   font-size: 0.75rem;
   line-height: 1.35;
@@ -796,7 +843,7 @@ tbody tr:hover {
   font: inherit;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--rule-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--card);
   color: var(--ink);
   width: 100%;
@@ -819,20 +866,27 @@ tbody tr:hover {
   color: var(--ink-faint);
 }
 
+/*
+ * Square, and Carbon's exact geometry: 12px vertical, 16px horizontal.
+ *
+ * The primary action is cobalt because it is the one chromatic thing on the
+ * page that a person is meant to press. Hover darkens rather than glows —
+ * "no atmospheric depth" is the rule this whole pass follows.
+ */
 .btn {
   font: inherit;
   font-weight: 600;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
+  padding: var(--s3) var(--s4);
   border: 1px solid var(--signal);
   background: var(--signal);
-  color: #fff;
+  color: var(--signal-ink);
   cursor: pointer;
-  transition: filter 160ms ease;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .btn:hover {
-  filter: brightness(1.1);
+  background: #0f24cc;
+  border-color: #0f24cc;
 }
 
 .btn:focus-visible {
@@ -848,7 +902,7 @@ tbody tr:hover {
 
 .notice {
   padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.8125rem;
   font-weight: 600;
   margin-bottom: 1rem;
@@ -864,10 +918,17 @@ tbody tr:hover {
   color: #a11;
 }
 
+/*
+ * Empty is a line on the board, not a large box announcing absence.
+ *
+ * A 2.5rem-tall centred panel makes nothing-to-report the biggest element in
+ * the region. On a printed timetable an empty block is simply short.
+ */
 .empty {
-  padding: 2.5rem 1rem;
-  text-align: center;
+  padding: var(--s4);
   color: var(--ink-faint);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
 }
 
 .grid-2 {
@@ -957,7 +1018,7 @@ tbody tr:hover {
     max-height: 88dvh;
     border-left: 0;
     border-top: 1px solid var(--rule-strong);
-    border-radius: 12px 12px 0 0;
+    border-radius: 0;
   }
 }
 
@@ -997,7 +1058,7 @@ tbody tr:hover {
   font: inherit;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--rule-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--card);
   color: var(--ink);
   width: 100%;
@@ -1046,7 +1107,7 @@ tbody tr:hover {
   font-size: 0.8125rem;
   padding: 0.4375rem 0;
   border: 1px solid var(--rule-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--card);
   color: var(--ink);
   cursor: pointer;
@@ -1073,7 +1134,7 @@ tbody tr:hover {
 .booking-error {
   margin: 0;
   padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 0;
   background: #fdecec;
   color: #a11;
   font-size: 0.8125rem;
@@ -1093,7 +1154,7 @@ tbody tr:hover {
   font-weight: 600;
   padding: 0.1875rem 0.5rem;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 0;
   background: none;
   color: var(--ink-faint);
   cursor: pointer;

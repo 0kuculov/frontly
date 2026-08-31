@@ -7,14 +7,6 @@
  */
 
 .login {
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #14120f;
-  --ink-faint: #8a8378;
-  --rule-strong: #dbd3c4;
-  --signal: #1b34ff;
-  --booked: #0f7a52;
-  --booked-wash: #e6f2ec;
 
   min-height: 100dvh;
   display: grid;
@@ -33,7 +25,7 @@
   max-width: 22rem;
   background: var(--card);
   border: 1px solid #ebe5da;
-  border-radius: 10px;
+  border-radius: 0;
   padding: 1.75rem;
 }
 
@@ -74,7 +66,7 @@
   font: inherit;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--rule-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--card);
   color: var(--ink);
   width: 100%;
@@ -90,7 +82,7 @@
   font: inherit;
   font-weight: 600;
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid var(--signal);
   background: var(--signal);
   color: #fff;
@@ -103,7 +95,7 @@
 
 .notice {
   padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.8125rem;
   font-weight: 600;
   margin-bottom: 1rem;

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getLang, getSessionToken } from '../lib/session';
+import type { Lang } from '../lib/lang';
 import { LANDING } from './landing-copy';
 import { LangSwitch } from './lang-switch';
 import { Logo, Wordmark } from './logo';
@@ -27,6 +28,9 @@ export const dynamic = 'force-dynamic';
 
 const PHONE_DISPLAY = '+1 619 349 7599';
 const PHONE_HREF = 'tel:+16193497599';
+
+/** Who the other voice on the transcript is, in the reader's language. */
+const SPEAKER: Record<Lang, string> = { mk: 'Пациент', sq: 'Klienti', en: 'Caller' };
 
 /**
  * A real exchange, taken verbatim from a booking that went through the live
@@ -90,17 +94,26 @@ export default async function LandingPage() {
       <main>
         <section className="lp-hero">
           <div className="lp-hero-copy">
+            <p className="lp-eyebrow">{c.eyebrow}</p>
             <h1>
               {c.headline[0]}
               <br />
               {c.headline[1]}
             </h1>
             <p className="lp-lede">{c.lede}</p>
+            {/*
+              The number IS the hero, on its own ruled row.
+              The whole product is a phone line that answers, so the thing to
+              put at display size is the thing a visitor can do right now.
+            */}
+            <a href={PHONE_HREF} className="lp-dial">
+              <span className="lp-dial-number">{PHONE_DISPLAY}</span>
+              <span className="lp-dial-note">{c.dialNote}</span>
+            </a>
             <div className="lp-cta">
               <a href={PHONE_HREF} className="lp-btn lp-btn-primary">
                 {c.cta}
               </a>
-              <span className="lp-cta-number">{PHONE_DISPLAY}</span>
             </div>
           </div>
 
@@ -113,7 +126,11 @@ export default async function LandingPage() {
                 English voice when the page is in English. */}
             <ol lang="mk">
               {EXCHANGE.map((line, index) => (
-                <li key={index} data-who={line.who}>
+                <li
+                  key={index}
+                  data-who={line.who}
+                  data-speaker={line.who === 'agent' ? 'Frontly' : SPEAKER[lang]}
+                >
                   <span className="lp-bubble">{line.text}</span>
                   {'tool' in line && line.tool ? (
                     <span className="lp-tool">{line.tool}</span>

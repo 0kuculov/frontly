@@ -9,7 +9,7 @@
  * What used to be here was a `@theme` block declaring a cyan brand palette
  * (--color-brand-500: #06b6d4) and Inter as the sans. Both were left over from
  * before the design existed, both contradicted what actually ships (signal
- * blue #1b34ff, Golos Text), and grep found NOT ONE use of either. Same shape
+ * blue var(--signal), Golos Text), and grep found NOT ONE use of either. Same shape
  * as ANTHROPIC_MODEL and SELF_RESOLVED_OUTCOMES: declared, believed, read by
  * nobody. Deleted rather than corrected — a token nothing uses is not a token.
  */

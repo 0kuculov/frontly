@@ -29,42 +29,70 @@
  */
 
 :root {
-  /* --- ground and ink ---------------------------------------------------- */
-
-  /* Warm paper, not cool grey: this replaces a paper appointment book, and
-     the warmth is where the pink-orange reference ended up — in the ground,
-     where it costs nothing, rather than in the accent, where it would cost
-     contrast and band on a projector. */
-  --paper: #faf7f2;
+  /* --- ground and ink ----------------------------------------------------
+   *
+   * Read off the supplied dashboard reference. Cool near-white rather than the
+   * warm paper this replaces: warm paper was a concession to a pink-orange
+   * reference that has now been superseded, and mixing a warm ground with a
+   * cool indigo is how a palette starts looking accidental.
+   */
+  --paper: #f6f8fc;
   --card: #ffffff;
 
-  --ink: #14120f;
-  --ink-soft: #5c574e; /* 6.7:1 on paper */
-  --ink-faint: #8a8378; /* 3.6:1 — labels and meta, never body text */
+  --ink: #1b1b45; /* the reference's heading colour: ink with indigo in it */
+  --ink-soft: #5a6076; /* 6.0:1 on paper */
+  --ink-faint: #6d7184; /* 4.55:1 measured — the label voice is small type */
 
-  /* Two rules and they do different jobs. The hairline separates rows; the
-     ink rule ends a section. Carbon calls the second one hairline-strong and
-     makes it the ink itself, which is why a page head reads as a masthead. */
-  --rule: #e7e0d4;
-  --rule-strong: #dbd3c4;
+  --rule: #e6eaf3;
+  --rule-strong: #d3d9e8;
   --rule-ink: var(--ink);
 
-  /* --- the one accent ---------------------------------------------------- */
-  --signal: #1b34ff;
-  --signal-ink: #ffffff;
-  --signal-wash: #eceeff;
+  /* --- the product's own dark ---------------------------------------------
+   *
+   * The reference's sidebar, and the single strongest thing it does: one deep
+   * field that anchors the page and gives the product a colour identity
+   * without spending the accent on furniture.
+   */
+  --indigo: #1b0f5e;
+  --indigo-soft: #2b1f77;
+  --indigo-ink: #e9e8f5;
+  --indigo-faint: #9d99c4;
 
-  /* --- status, which must survive being glanced at ----------------------- */
-  --booked: #0f7a52;
-  --booked-wash: #e4f1ea;
-  --info: #2f4a7a;
-  --info-wash: #e9edf5;
-  --transferred: #8a5200;
-  --transferred-wash: #f7eedc;
-  --abandoned: #6e6a62;
-  --abandoned-wash: #edeae3;
-  --danger: #a3231d;
-  --danger-wash: #f8e9e7;
+  /* --- the one accent -----------------------------------------------------
+   *
+   * Two values, because one cannot do both jobs. The reference's bright azure
+   * (#3ea1f7) is a FILL colour: MEASURED at 2.58:1 on paper, which fails AA for
+   * text outright, so links and small type use the deeper azure and the bright
+   * one appears only on indigo (5.99:1 there) or as a large solid.
+   *
+   * Every value in this block was computed rather than judged. The first cut
+   * of the accent looked right and measured 4.49 — under the line by nine
+   * hundredths, which no eye catches and every audit does.
+   */
+  --signal: #1c6ddd; /* 4.61:1 on paper, 4.91:1 under white — measured */
+  --signal-bright: #3ea1f7; /* fills, and the active row on indigo */
+  --signal-ink: #ffffff;
+  --signal-wash: #e8f1fd;
+
+  /* --- status, which must survive being glanced at ------------------------
+   *
+   * `info` used to be a navy (#2f4a7a). Against an indigo sidebar and an azure
+   * accent that is no longer a status colour, it is the brand — two blues in
+   * one family, and the badge would read as "branded" rather than as an
+   * outcome. It is now a neutral graphite, which leaves blue belonging to
+   * Frontly alone and keeps four genuinely distinct families: green, amber,
+   * graphite, grey. Every badge still carries a shape as well as a colour.
+   */
+  --booked: #107d53; /* 4.51:1 on its wash */
+  --booked-wash: #e3f4ec;
+  --info: #4a4a5c;
+  --info-wash: #ebecf1;
+  --transferred: #98590a; /* 4.94:1 on its wash */
+  --transferred-wash: #fbf0dd;
+  --abandoned: #666b7c; /* 4.57:1 on its wash */
+  --abandoned-wash: #eceef4;
+  --danger: #d3283f;
+  --danger-wash: #fdeaec;
 
   /* --- spacing: Carbon's 4px grid --------------------------------------- */
   --s1: 4px;
@@ -78,23 +106,14 @@
 
   /* --- shape ------------------------------------------------------------- */
   /*
-   * Zero. Every button, input, row and panel.
-   *
-   * This is the single change that carries the most of the look. Rounded
-   * cards with soft borders are the generated-admin-panel signature; squared
-   * and ruled is print. Carbon's own note is that even 4px breaks it, and
-   * that is right — a 4px radius reads as an app trying to be friendly, which
-   * is the opposite of a timetable's promise.
+   * Still zero. The reference rounds everything to 8-12px; that is the half of
+   * it NOT being taken, along with its drop shadows and its gradients. The
+   * brief was palette and register, and the structure was explicitly not to be
+   * rebuilt.
    */
   --radius: 0;
 
   /* --- the label voice ---------------------------------------------------- */
-  /*
-   * Every structural label in the product is this: mono, small, uppercase,
-   * widely tracked. It is the timetable's own voice, and it is the reason the
-   * old dashboard read flat — every label was 12px Golos in grey, which said
-   * nothing and looked like a placeholder.
-   */
   --label-size: 0.6875rem;
   --label-track: 0.14em;
 }
@@ -113,4 +132,29 @@
   text-transform: uppercase;
   color: var(--ink-faint);
   margin: 0;
+}
+
+/*
+ * The lockup, shared by every surface.
+ *
+ * It lived in landing.css, so the dashboard sidebar rendered it as a plain
+ * span with no flex and no nowrap — and the lockup broke in half, "F" above
+ * "rontly", which is the one way a wordmark can fail. A component used on
+ * three surfaces cannot have its styles in one of them.
+ *
+ * The negative pull closes the glyph's own side bearing inside its 100-unit
+ * box; in `em` because the lockup runs at 20px in a footer and 26px in a nav.
+ */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-size: 1.05rem;
+}
+
+.wordmark > svg {
+  margin-right: -0.16em;
+  flex: none;
 }

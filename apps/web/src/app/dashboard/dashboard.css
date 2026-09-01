@@ -48,9 +48,24 @@
 
 /* --- sidebar -------------------------------------------------------------- */
 
+/*
+ * One deep field down the left, taken from the reference.
+ *
+ * It is the strongest thing that reference does: a single dark column anchors
+ * the page and hands the product a colour identity without spending the accent
+ * on furniture. Everything inside it re-points at the indigo scale — a sidebar
+ * that inherits paper-on-white tokens is how a dark panel ends up with grey
+ * text nobody can read.
+ */
 .side {
-  border-right: 1px solid var(--rule);
-  background: var(--card);
+  background: var(--indigo);
+  color: var(--indigo-ink);
+  --rule: #2f2482;
+  --rule-strong: #3d3196;
+  --ink: var(--indigo-ink);
+  --ink-soft: var(--indigo-faint);
+  --ink-faint: var(--indigo-faint);
+  --card: var(--indigo);
   padding: 1.25rem 0.875rem;
   display: flex;
   flex-direction: column;
@@ -72,10 +87,40 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--s2);
+  padding: 0 var(--s3);
+  color: var(--indigo-ink);
+}
+
+/*
+ * Who is signed in, not what the product is called.
+ *
+ * Label in the machine face above the name, the same construction as every
+ * column header on the board, so it reads as a field with a value in it
+ * rather than as a second brand.
+ */
+.tenant {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   padding: 0 var(--s3) var(--s4);
   border-bottom: 1px solid var(--rule);
-  color: var(--signal);
+}
+
+.tenant-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--indigo-faint);
+}
+
+.tenant-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--indigo-ink);
+  overflow-wrap: anywhere;
 }
 
 .brand-name {
@@ -121,14 +166,20 @@
 }
 
 .nav a:hover {
-  color: var(--ink);
+  color: #fff;
   border-left-color: var(--rule-strong);
 }
 
+/*
+ * Azure, not ink. The previous mark was a 2px ink bar, which was right on a
+ * white sidebar and is invisible on a dark one — the same value cannot do both
+ * jobs. On indigo the bright azure is the readable one, and it is the only
+ * place on the page that colour appears in navigation.
+ */
 .nav a[aria-current='page'] {
-  color: var(--ink);
+  color: #fff;
   font-weight: 700;
-  border-left-color: var(--ink);
+  border-left-color: var(--signal-bright);
 }
 
 .side-foot {
@@ -169,9 +220,14 @@
   transition: background 160ms ease, color 160ms ease;
 }
 
+.side .lang {
+  border-color: var(--rule-strong);
+}
+
+/* On indigo, "selected" is the bright azure — ink-on-ink would vanish. */
 .lang button[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: var(--signal-bright);
+  color: var(--indigo);
 }
 
 .linkish {
@@ -885,8 +941,8 @@ tbody td:first-child {
 }
 
 .btn:hover {
-  background: #0f24cc;
-  border-color: #0f24cc;
+  background: var(--signal);
+  border-color: var(--signal);
 }
 
 .btn:focus-visible {
@@ -983,7 +1039,7 @@ tbody td:first-child {
   inset: 0;
   /* Ink at low alpha rather than black: the page behind stays readable, which
      is the point of not using a modal. */
-  background: rgb(20 18 15 / 0.30);
+  background: rgb(27 15 94 / 0.32);
   z-index: 20;
 }
 
@@ -1008,7 +1064,7 @@ tbody td:first-child {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  box-shadow: -18px 0 40px -30px rgb(20 18 15 / 0.5);
+  box-shadow: -18px 0 40px -30px rgb(27 15 94 / 0.45);
 }
 
 @media (max-width: 640px) {

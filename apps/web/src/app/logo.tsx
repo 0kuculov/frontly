@@ -1,46 +1,75 @@
 /**
- * The Frontly mark: an F that answers.
+ * The Frontly mark: a heavy geometric F, reproduced from the supplied
+ * reference.
  *
- * Built as ONE closed path, not a set of strokes. This file has already
- * learned that lesson twice — an outlined bubble with a handset arc was mush
- * at 24px, and three thin lines in a small square are a texture rather than a
- * symbol. A single solid mass survives a browser tab.
+ * Built from two STROKED paths rather than one traced outline, and that is the
+ * whole trick. The reference's character is a constant-weight bar that turns a
+ * large radius on the left and stops square on the right; a stroke with
+ * `linejoin: round` and `linecap: butt` produces exactly that by construction,
+ * so the curve stays a true constant width at every size instead of drifting
+ * the way a hand-computed outline does. It also means the weight is one
+ * number, not forty coordinates.
  *
- * The construction, so it can be redrawn rather than traced:
+ * The reading, so the mark can be redrawn rather than copied:
+ *  - The top arm sweeps out of the stem on a radius roughly the bar's own
+ *    height, which is what gives the mark its forward lean without any italic.
+ *  - Both arms end SQUARE on the right. Rounding them too would make it a
+ *    generic soft logo; the contrast between the curved left and the cut right
+ *    is the whole silhouette.
+ *  - The foot is angled, because the last stem segment leans and a butt cap is
+ *    perpendicular to its own direction.
  *
- *   - A geometric F, leaned 6° from a pivot on the baseline. Six degrees, not
- *     the twelve of a display italic: the product answers a phone instantly,
- *     which is composure, not racing. A steeper lean puts it straight back
- *     into the logistics-and-fintech silhouette this was drawn to avoid.
- *   - The MIDDLE arm runs longer than the top one and ends in a wedge whose
- *     tip drops to the lower right — the tail of a speech bubble, and the only
- *     thing in the mark that is not a rectangle. Read fast it is an F; read
- *     once more, something in it spoke.
- *   - The foot is cut flat. Logistics marks trail backwards into speed lines
- *     because they are about travel. This one arrives and stops.
+ * TWO VARIANTS, because the brief asked for one if legibility failed small.
+ * It does: below about 32px the counter between the arms closes up and the
+ * mark starts reading as a filled blob. `SMALL` opens the gap, thickens the
+ * bar slightly and shortens the sweep, which holds at 16px in a browser tab.
+ * Verified by rendering both at 16/20/24/32/48/140.
  *
- * `currentColor` throughout, so one asset covers every placement: cobalt in
- * the nav, paper on a dark panel, ink on white. Monochrome by construction —
- * there is no gradient version, because a mark that needs one is not a mark.
+ * `currentColor` throughout, so one asset serves every placement: azure in the
+ * dashboard header, paper on the indigo sidebar, ink on white. Monochrome by
+ * construction — there is no gradient version, because a mark that needs one
+ * is not a mark.
  */
 
-/** The single path, leaned and balanced inside a 32-unit box. */
-const F_PATH =
-  'M8.5 4 L25 4 L24.4 9.6 L13.9 9.6 L13.5 14.2 L25 14.2 L24.4 19.8 L22.8 24.8 L20.6 19.8 L12.9 19.8 L12 28 L6 28 Z';
+/** Above 32px: the reference's own proportions. */
+const FULL = {
+  width: 22,
+  arm: 'M86 25 H47 Q31 25 31 44 L36 90',
+  bar: 'M31 70 Q31 56 46 56 H79',
+};
+
+/** At or below 32px: wider counter, heavier bar, shorter sweep. */
+const SMALL = {
+  width: 23,
+  arm: 'M86 24 H46 Q31 24 31 42 L35 88',
+  bar: 'M31 74 Q31 59 46 59 H76',
+};
+
+/** Below this the full drawing's counter closes up. Measured, not guessed. */
+const SMALL_BELOW = 32;
 
 export function Logo({ size = 28, title }: { size?: number; title?: string }) {
+  const shape = size <= SMALL_BELOW ? SMALL : FULL;
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox="0 0 100 100"
       fill="none"
       aria-hidden={title ? undefined : true}
       role={title ? 'img' : undefined}
       focusable="false"
     >
       {title ? <title>{title}</title> : null}
-      <path d={F_PATH} fill="currentColor" />
+      <g
+        stroke="currentColor"
+        strokeWidth={shape.width}
+        strokeLinecap="butt"
+        strokeLinejoin="round"
+      >
+        <path d={shape.arm} />
+        <path d={shape.bar} />
+      </g>
     </svg>
   );
 }
@@ -48,14 +77,11 @@ export function Logo({ size = 28, title }: { size?: number; title?: string }) {
 /**
  * The lockup: the F glyph, then "rontly".
  *
- * The word is set in the product's own text face rather than drawn, which is
- * the whole point of a wordmark built this way — it renders in Cyrillic
- * contexts, it stays crisp at any size, and there is no second asset to keep
- * in sync. The F carries the identity; the word only has to belong to it.
- *
- * The negative margin closes the gap the glyph's own side bearing opens up:
- * the path stops at x=27 inside a 32-unit box, so without it the F and the
- * "r" read as two words.
+ * The mark IS the F — "rontly" completes the word rather than sitting beside
+ * it — so a gap turns "Frontly" into "F rontly". The glyph carries its own
+ * side bearing inside a 100-unit box, so the negative pull closes that empty
+ * space rather than guessing at a letter-space, and it is in `em` because the
+ * lockup runs at 20px in a footer and 26px in a nav.
  */
 export function Wordmark({ size = 26 }: { size?: number }) {
   return (

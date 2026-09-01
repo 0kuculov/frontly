@@ -4,7 +4,7 @@ import { getLang, getSessionToken } from '../../lib/session';
 import { translator } from '../../lib/i18n';
 import { signOut } from './actions';
 import { LanguageToggle, Nav } from './nav';
-import { Logo } from '../logo';
+import { Wordmark } from '../logo';
 import './dashboard.css';
 
 /**
@@ -37,13 +37,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="app" lang={lang}>
       <aside className="side">
         {/*
-          The mark, then the clinic. Which product this is, then whose data is
-          in it — a blue dot said neither, and the mark is the only thing that
-          makes this screen and the stage screen visibly one product.
+          Two lines, and the order is the point: the PRODUCT first, then who is
+          signed in to it.
+
+          They used to share one line — mark, then "Дентал Охрид" — which read
+          as though the clinic were the product's name. It is the customer. So
+          Frontly takes the wordmark and the top slot, and the clinic sits
+          under a label that says what it is, in the quieter register the rest
+          of the sidebar uses for machine values.
         */}
         <div className="brand">
-          <Logo size={20} />
-          <span className="brand-name">{clinic}</span>
+          <Wordmark size={22} />
+        </div>
+        <div className="tenant">
+          <span className="tenant-label">{t('clinic')}</span>
+          <span className="tenant-name">{clinic}</span>
         </div>
 
         <Nav lang={lang} />

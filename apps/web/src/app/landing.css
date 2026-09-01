@@ -85,17 +85,6 @@
  * `em`, never `rem`: the lockup is used at 20px in a footer and 26px in a
  * nav, and a fixed pull would open a gap at one size and overlap at the other.
  */
-.wordmark {
-  display: inline-flex;
-  align-items: center;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  font-size: 1.05rem;
-}
-
-.wordmark > svg {
-  margin-right: -0.17em;
-}
 
 /*
  * Two-tone lockup: the F in cobalt, the word in ink.
@@ -300,7 +289,7 @@
 
 .lp-btn-primary {
   background: var(--signal);
-  color: var(--signal-ink); /* white on #1b34ff, comfortably past AA */
+  color: var(--signal-ink); /* white on var(--signal), comfortably past AA */
 }
 .lp-btn-primary:hover {
   background: #1329d6;

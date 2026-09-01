@@ -1,75 +1,62 @@
 /**
- * The Frontly mark: a heavy geometric F, reproduced from the supplied
- * reference.
+ * The Frontly mark, reproduced from the supplied reference.
  *
- * Built from two STROKED paths rather than one traced outline, and that is the
- * whole trick. The reference's character is a constant-weight bar that turns a
- * large radius on the left and stops square on the right; a stroke with
- * `linejoin: round` and `linecap: butt` produces exactly that by construction,
- * so the curve stays a true constant width at every size instead of drifting
- * the way a hand-computed outline does. It also means the weight is one
- * number, not forty coordinates.
+ * TWO HOOKS, not one letter. That is the reading the first attempt got wrong:
+ * this is not an F with a crossbar, it is a large hook and a smaller one nested
+ * inside it, separated by an even white channel. Each hook is a thick
+ * horizontal bar whose left end sweeps down into a descender — the top one
+ * TAPERS TO A POINT (the thin crescent on the left flank), the bottom one keeps
+ * its full width and lands flat.
  *
- * The reading, so the mark can be redrawn rather than copied:
- *  - The top arm sweeps out of the stem on a radius roughly the bar's own
- *    height, which is what gives the mark its forward lean without any italic.
- *  - Both arms end SQUARE on the right. Rounding them too would make it a
- *    generic soft logo; the contrast between the curved left and the cut right
- *    is the whole silhouette.
- *  - The foot is angled, because the last stem segment leans and a butt cap is
- *    perpendicular to its own direction.
+ * Filled paths rather than strokes, because a stroke cannot taper. The first
+ * build used two stroked paths, which held a constant width beautifully and
+ * therefore could not produce the one feature that gives this mark its
+ * character.
  *
- * TWO VARIANTS, because the brief asked for one if legibility failed small.
- * It does: below about 32px the counter between the arms closes up and the
- * mark starts reading as a filled blob. `SMALL` opens the gap, thickens the
- * bar slightly and shortens the sweep, which holds at 16px in a browser tab.
- * Verified by rendering both at 16/20/24/32/48/140.
+ * Proportions were measured off the reference rather than judged: the glyph is
+ * 110 × 100, the top bar reaches the full width, the middle bar stops at 82,
+ * the stem is 32 wide, and the channel between the hooks holds about 3 units
+ * all the way round its curve.
  *
- * `currentColor` throughout, so one asset serves every placement: azure in the
- * dashboard header, paper on the indigo sidebar, ink on white. Monochrome by
- * construction — there is no gradient version, because a mark that needs one
- * is not a mark.
+ * TWO VARIANTS. Below 32px the channel closes and the mark reads as a blob, so
+ * `SMALL` widens it, blunts the taper and shortens the sweep — verified legible
+ * down to 14px, on paper and on indigo. `size` is the HEIGHT; width follows the
+ * 1.1 aspect, because forcing this into a square would squash it.
+ *
+ * `currentColor` throughout, so one asset covers every placement.
  */
 
-/** Above 32px: the reference's own proportions. */
-const FULL = {
-  width: 22,
-  arm: 'M86 25 H47 Q31 25 31 44 L36 90',
-  bar: 'M31 70 Q31 56 46 56 H79',
-};
+/** Above 32px: the reference's own proportions, fine taper and all. */
+const FULL =
+  'M110 0 L36 0 C15 0 0 16 0 38 L6 67 C9 48 15 40 27 35 L95 33 Z ' +
+  'M47 37 L65 37 C74 37 82 45 82 53 C82 61 74 69 65 69 L42 69 L42 100 ' +
+  'L10 100 L10 70 C10 51 26 37 47 37 Z';
 
-/** At or below 32px: wider counter, heavier bar, shorter sweep. */
-const SMALL = {
-  width: 23,
-  arm: 'M86 24 H46 Q31 24 31 42 L35 88',
-  bar: 'M31 74 Q31 59 46 59 H76',
-};
+/** At or below 32px: wider channel, blunter taper. */
+const SMALL =
+  'M110 0 L38 0 C17 0 2 17 2 40 L11 63 C14 50 20 43 31 39 L93 36 Z ' +
+  'M50 43 L64 43 C73 43 80 50 80 58 C80 66 73 73 64 73 L45 73 L45 100 ' +
+  'L13 100 L13 72 C13 55 29 43 50 43 Z';
 
-/** Below this the full drawing's counter closes up. Measured, not guessed. */
-const SMALL_BELOW = 32;
+/** Below this the full drawing's channel closes up. Measured, not guessed. */
+const SMALL_AT_OR_BELOW = 32;
 
 export function Logo({ size = 28, title }: { size?: number; title?: string }) {
-  const shape = size <= SMALL_BELOW ? SMALL : FULL;
   return (
     <svg
-      width={size}
+      width={size * 1.1}
       height={size}
-      viewBox="0 0 100 100"
-      fill="none"
+      viewBox="0 0 110 100"
+      fill="currentColor"
       aria-hidden={title ? undefined : true}
       role={title ? 'img' : undefined}
       focusable="false"
     >
       {title ? <title>{title}</title> : null}
-      <g
-        stroke="currentColor"
-        strokeWidth={shape.width}
-        strokeLinecap="butt"
-        strokeLinejoin="round"
-      >
-        <path d={shape.arm} />
-        <path d={shape.bar} />
-      </g>
+      <path
+        d={size <= SMALL_AT_OR_BELOW ? SMALL : FULL}
+        fillRule="evenodd"
+      />
     </svg>
   );
 }
@@ -78,10 +65,9 @@ export function Logo({ size = 28, title }: { size?: number; title?: string }) {
  * The lockup: the F glyph, then "rontly".
  *
  * The mark IS the F — "rontly" completes the word rather than sitting beside
- * it — so a gap turns "Frontly" into "F rontly". The glyph carries its own
- * side bearing inside a 100-unit box, so the negative pull closes that empty
- * space rather than guessing at a letter-space, and it is in `em` because the
- * lockup runs at 20px in a footer and 26px in a nav.
+ * it — so a gap turns "Frontly" into "F rontly". The pull is in `em` because
+ * the lockup runs at 20px in a footer and 26px in a nav, and a fixed value
+ * would open a gap at one size and overlap at the other.
  */
 export function Wordmark({ size = 26 }: { size?: number }) {
   return (

@@ -177,7 +177,14 @@ export default function DemoPage() {
           {live ? 'Во тек' : 'Слободна линија'}
         </span>
         <span className="who">Дентал Охрид</span>
-        <span className="number">+1 619 349 7599</span>
+        {/*
+          The number is off the stage screen for now, on request.
+
+          Both places it appeared are commented rather than deleted: the demo
+          exists to be dialled, so this is a temporary state and the markup
+          should be one uncomment away from coming back, not a rebuild.
+        */}
+        {/* <span className="number">+1 619 349 7599</span> */}
 
         <span className="spacer" />
         <span className="link" data-state={connected ? 'up' : 'down'}>
@@ -201,7 +208,7 @@ export default function DemoPage() {
             */}
             <Logo size={96} />
             <p className="idle-lead">Јавете се и закажете термин.</p>
-            <p className="idle-number">+1 619 349 7599</p>
+            {/* <p className="idle-number">+1 619 349 7599</p> */}
           </div>
         ) : (
           entries.map((entry) =>

@@ -19,27 +19,6 @@
 
 ---
 
-## Call it
-
-<h3 align="center">
-  <a href="tel:+16193497599">+1&nbsp;619&nbsp;349&nbsp;7599</a>
-</h3>
-
-<p align="center">
-  <sub>Live right now. Answered by the code in this repository.</sub>
-</p>
-
-This is a real number, answered by the software in this repository. Ring it and
-speak **Macedonian** — say *„Сакам да закажам преглед"* (I'd like to book a
-check-up) and it will offer you real free times from a real calendar, read your
-phone number back digit by digit, wait for you to confirm, and write the booking
-to the database. Albanian and English work too.
-
-It answers a US number because North Macedonia has no +389 inventory available
-to the account yet; that is a procurement step, not an engineering one.
-
----
-
 ## Demo video
 
 <!--
@@ -80,6 +59,49 @@ at all.
 
 Frontly answers on the first ring, in the caller's own language, and only ever
 offers times that are genuinely free.
+
+---
+
+## See it working
+
+The screenshots are the seeded demo clinic — *Дентал Охрид*, a two-dentist
+practice in Ohrid — and they are the product's own language, not a translation
+made for this document.
+
+<p align="center">
+  <img src="docs/screenshot-transcript.png" width="820" alt="A call transcript in the owner dashboard: the caller books a check-up in Macedonian, and each tool the agent called is shown inline with its duration.">
+</p>
+
+That is one real conversation, replayed from the database. The caller asks for a
+check-up, the agent offers a time it got from `check_availability`, reads the
+phone number back **digit by digit**, waits to be told it is right, and only then
+books. Every tool call is shown inline with the time it took — 11 ms, 6 ms,
+44 ms. The confirmation gate is not a prompt instruction the model may or may not
+follow: `book_appointment` is refused by the engine unless `confirm_details` ran
+on an earlier turn.
+
+<p align="center">
+  <img src="docs/screenshot-dashboard.png" width="820" alt="The owner dashboard: a day drawn as a time rail with gaps to scale, and the day's calls with their outcomes.">
+</p>
+
+The owner's day is drawn as a column of time with the gaps between patients to
+scale, because the object this software replaces is a paper appointment book.
+Each call carries its outcome and, when it booked something, the slot it booked.
+
+### The live line
+
+There is a working phone number, answered by the code in this repository, on
+which you can hold a booking conversation in Macedonian. **It is not published
+here.** Every call spends real money on three vendors and the speech tier caps
+the line at three simultaneous callers, so an open invitation in a README is a
+good way to make the line unavailable at the moment it matters.
+
+**Evaluators: ask and you get the number**, along with a window when the line is
+warm and the dashboard is populated so you can watch a booking land while you are
+still on the call.
+
+It answers a US number today because North Macedonia has no +389 inventory
+available to the account yet — a procurement step, not an engineering one.
 
 ---
 
@@ -371,14 +393,22 @@ pnpm --filter @frontly/api simulate:call      # a whole call, no phone involved
 Deployed and answering a real phone number. Not a product anyone is paying for
 yet.
 
-**Working end to end.** Inbound calls in Macedonian, Albanian and English.
-Availability against working hours, service duration and per-staff competence.
-Double-booking prevented by a partial unique index, verified under real
-contention — every caller asks for the same slot, exactly one gets it, and the
-loser is told so in conversation. An embeddable chat widget over the same
-engine. An owner dashboard with a day rail, transcripts, and manual booking and
-cancellation that go through the same functions the phone does. SMS
-confirmations, reminders and a daily summary, composed to fit one message part.
+**Working end to end.**
+
+- Inbound calls in Macedonian, Albanian and English, on a real carrier.
+- Availability computed against working hours, service duration and which staff
+  member can perform which service.
+- Double-booking prevented by a partial unique index and **verified under real
+  contention** — every caller asks for the same slot, exactly one gets it, and
+  the loser is told so in conversation rather than by an error.
+- A confirmation gate the model cannot talk its way past: name and number are
+  read back and `book_appointment` is refused until the caller has confirmed.
+- An embeddable chat widget running on the same engine, added without touching
+  it.
+- An owner dashboard — day rail, transcripts with tool calls, manual booking and
+  cancellation through the same functions the phone uses — in three languages.
+- SMS confirmations, reminders and a daily summary, each composed to fit a
+  single message part.
 
 **Known weak, honestly.**
 
@@ -414,22 +444,6 @@ confirmations, reminders and a daily summary, composed to fit one message part.
   untested with two.
 - **No paying customer, no pilot.** The clinic in the demo is seeded data.
 
-**A note on the CI badge.** This repository is private, so shields.io cannot
-read its workflow runs and a live status badge would render as an error for
-every reader. The badge above therefore states what CI *runs* — build,
-typecheck and the full suite, on every push, defined in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — rather than asserting a
-result it cannot prove. If the repository is made public, swap it for the live
-one:
-
-```html
-<a href="https://github.com/0kuculov/frontly/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/0kuculov/frontly/ci.yml?branch=main&label=build&style=flat-square"></a>
-```
-
-There is also no licence badge, because there is no `LICENSE` file yet. That is
-a decision with consequences — a permissive licence gives away a product being
-pitched — and it is not one to make by default.
-
 **Next.** Register the alphanumeric sender for +389 and finish the SMS path.
 Provision a +389 *local* number. Move language detection to `Continuous` on the
 evidence of a real call rather than a simulation. Put the product in front of
@@ -451,6 +465,26 @@ packages/
   shared/       Vocabulary with no I/O: languages, channels, working hours,
                 voice config, environment schema, SMS encoding rules.
 ```
+
+## Notes on this README
+
+**A note on the CI badge.** This repository is private, so shields.io cannot
+read its workflow runs and a live status badge would render as an error for
+every reader. The badge above therefore states what CI *runs* — build,
+typecheck and the full suite, on every push, defined in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — rather than asserting a
+result it cannot prove. If the repository is made public, swap it for the live
+one:
+
+```html
+<a href="https://github.com/0kuculov/frontly/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/0kuculov/frontly/ci.yml?branch=main&label=build&style=flat-square"></a>
+```
+
+There is also no licence badge, because there is no `LICENSE` file yet. That is
+a decision with consequences — a permissive licence gives away a product being
+pitched — and it is not one to make by default.
+
+---
 
 `CLAUDE.md` in the repository root is the engineering log — every measurement
 above, every assumption that turned out to be wrong, and why each decision went

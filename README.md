@@ -82,36 +82,41 @@ offers times that are genuinely free.
 ### The call path
 
 ```mermaid
-flowchart LR
-  caller([Caller]) -->|PSTN| telnyx[Telnyx<br/>Call Control]
+flowchart TD
+  caller([Caller]) -->|PSTN| telnyx["Telnyx · Call Control"]
+  telnyx -->|"webhook<br/>call.initiated"| api
+  api -->|"answer + open stream"| telnyx
+  telnyx <==>|"WebSocket · 8 kHz mulaw"| api
 
-  telnyx -->|"webhook<br/>call.initiated"| api["apps/api<br/>voice adapter"]
-  api -->|"answer + open stream<br/>(one command)"| telnyx
-  telnyx <-->|"WebSocket<br/>8 kHz mulaw, 20 ms frames"| api
+  api["apps/api · voice adapter"] -->|caller audio| stt["Azure STT · mk / sq / en"]
+  stt -->|"transcript + confidence"| engine
 
-  api -->|audio in| stt[Azure STT<br/>mk / sq / en]
-  stt -->|"final transcript<br/>+ confidence"| engine
-
-  subgraph core["packages/core — knows nothing about phones"]
-    engine[handleTurn] --> model[Claude<br/>tool use]
-    model --> tools["check_availability<br/>confirm_details<br/>book_appointment<br/>transfer_to_human<br/>end_call"]
-    tools --> db[(Turso<br/>libSQL)]
-    tools --> engine
+  subgraph core ["packages/core"]
+    direction TB
+    engine["handleTurn"] <--> model["Claude · tool use"]
+    model --> tools["check_availability · confirm_details<br/>book_appointment · transfer_to_human · end_call"]
+    tools <--> db[("Turso · libSQL")]
   end
 
-  engine -->|"reply, sentence at a time"| sanitize[sanitizeForSpeech]
-  sanitize --> tts[Azure TTS<br/>SSML]
-  tts -->|audio out| api
+  engine -->|"reply, a sentence at a time"| sanitize["sanitizeForSpeech"]
+  sanitize --> tts["Azure TTS · SSML"]
+  tts -->|agent audio| api
 
-  db -.->|after the call ends| sms[Telnyx SMS<br/>confirmation]
-  db -.-> dash["apps/web<br/>owner dashboard"]
+  db -.->|once the call ends| sms["Telnyx SMS · confirmation"]
+  db -.-> dash["apps/web · owner dashboard"]
 ```
 
-Two details in that diagram are load-bearing. The answer command and the
-media-stream parameters go out in **one** round trip, because answering first
-and opening the stream second leaves the caller in silence while the second
-request is in flight. And the reply is synthesized **sentence at a time**, so
-sentence two is still being generated while sentence one is already playing.
+`packages/core` is inside the box on purpose: it has no idea a telephone is
+involved. Three details in that path are load-bearing.
+
+The answer command and the media-stream parameters go out in **one** round
+trip, because answering first and opening the stream second leaves the caller
+in silence while the second request is in flight. The socket carries a 20 ms
+frame every 20 ms for the whole call, silence included — a simulation that
+simply stops sending between turns is not a phone call, and Azure's
+end-of-phrase timer measures silence *in the audio it receives*. And the reply
+is synthesized **a sentence at a time**, so sentence two is still generating
+while sentence one is already playing.
 
 ### The package boundary
 

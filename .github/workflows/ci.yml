@@ -1,0 +1,44 @@
+name: CI
+
+# Build, typecheck and the full test suite on every push and pull request.
+#
+# It exists so the badge in the README is a fact rather than a claim. Nothing
+# here needs a secret: the live-model tests are opt-in behind FRONTLY_LIVE_TESTS
+# and every database test runs against a temporary file, so a fork can run this
+# green without any credentials.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: build · typecheck · test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads packageManager from package.json, so CI and Render cannot drift
+      # onto different pnpm majors.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches engines.node (">=24 <25"). Render resolves engines itself
+          # and it wins there, so pinning here keeps the two honest.
+          node-version: 24.18.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The order Render uses: packages before apps. A build failure here is
+      # the same failure a deploy would hit.
+      - run: pnpm build
+
+      # tsconfig.check.json, not the build config — the build compiles only
+      # src/ and would leave scripts/ and *.test.ts unchecked.
+      - run: pnpm typecheck
+
+      - run: pnpm test

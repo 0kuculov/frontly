@@ -26,8 +26,20 @@ import './landing.css';
 
 export const dynamic = 'force-dynamic';
 
-const PHONE_DISPLAY = '+1 619 349 7599';
-const PHONE_HREF = 'tel:+16193497599';
+/**
+ * The public page does NOT publish the phone number, deliberately.
+ *
+ * Every call it would invite spends real money across three vendors, and the
+ * speech tier caps the line at three simultaneous callers — so a number on a
+ * page anyone can find is a way to make the line unavailable at the moment it
+ * matters. The line is real and is given out to evaluators and prospects
+ * directly; the transcript below is what proves it works.
+ *
+ * Set this to an address and the page grows a "request a demo" action. Left
+ * empty it renders nothing at all rather than a dead link or a placeholder,
+ * because a broken mailto on a live page is worse than no button.
+ */
+const CONTACT_EMAIL = '';
 
 /** Who the other voice on the transcript is, in the reader's language. */
 const SPEAKER: Record<Lang, string> = { mk: 'Пациент', sq: 'Klienti', en: 'Caller' };
@@ -82,9 +94,6 @@ export default async function LandingPage() {
         </Link>
         <nav>
           <LangSwitch lang={lang} />
-          <a href={PHONE_HREF} className="lp-nav-phone" aria-label={c.navPhone}>
-            {PHONE_DISPLAY}
-          </a>
           <Link href="/login" className="lp-nav-signin">
             {c.navSignIn}
           </Link>
@@ -102,19 +111,18 @@ export default async function LandingPage() {
             </h1>
             <p className="lp-lede">{c.lede}</p>
             {/*
-              The number IS the hero, on its own ruled row.
-              The whole product is a phone line that answers, so the thing to
-              put at display size is the thing a visitor can do right now.
+              The transcript beside this is the hero now. It used to be the
+              phone number at display size, which was the right answer for a
+              page whose one action was to be dialled — and the wrong one for a
+              page that no longer publishes the number.
             */}
-            <a href={PHONE_HREF} className="lp-dial">
-              <span className="lp-dial-number">{PHONE_DISPLAY}</span>
-              <span className="lp-dial-note">{c.dialNote}</span>
-            </a>
-            <div className="lp-cta">
-              <a href={PHONE_HREF} className="lp-btn lp-btn-primary">
-                {c.cta}
-              </a>
-            </div>
+            {CONTACT_EMAIL ? (
+              <div className="lp-cta">
+                <a href={`mailto:${CONTACT_EMAIL}`} className="lp-btn lp-btn-primary">
+                  {c.contactCta}
+                </a>
+              </div>
+            ) : null}
           </div>
 
           <div className="lp-exchange" aria-label={c.exchangeLabel}>
@@ -182,11 +190,10 @@ export default async function LandingPage() {
               No public sign-up, and the reason is specific rather than
               squeamish: inbound calls are routed to the only business when
               exactly one exists, so creating a second one from a web form
-              would silently break the phone line this page invites people to
-              ring. New clinics are set up by hand until numbers are assigned
-              per business.
+              would silently break the live phone line. New businesses are set
+              up by hand until numbers are assigned per business.
             */}
-            <p className="lp-fine">{c.newClinic(PHONE_DISPLAY)}</p>
+            {CONTACT_EMAIL ? <p className="lp-fine">{c.contactFine}</p> : null}
           </div>
         </section>
       </main>

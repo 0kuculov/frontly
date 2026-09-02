@@ -15,14 +15,13 @@ import type { Lang } from '../lib/lang';
 export interface LandingCopy {
   /** Mono label over the headline: who this is for. */
   eyebrow: string;
-  /** Under the number: what happens if you dial it. */
-  dialNote: string;
-  navPhone: string;
   navSignIn: string;
   /** Two lines, and they are two lines on purpose — see the <br> in the page. */
   headline: [string, string];
   lede: string;
-  cta: string;
+  /** Only rendered when a contact address is configured. See page.tsx. */
+  contactCta: string;
+  contactFine: string;
   /**
    * The transcript is REAL and it is in Macedonian, so it is never translated
    * — a "verbatim" transcript that changes language per visitor is a lie about
@@ -36,19 +35,17 @@ export interface LandingCopy {
   signInTitle: string;
   signInBody: string;
   signInCta: string;
-  newClinic: (phone: string) => string;
   footer: string;
 }
 
 export const LANDING: Record<Lang, LandingCopy> = {
   mk: {
     eyebrow: 'Ординации · Салони · Автосервиси',
-    dialNote: 'Јавете се сега — ќе одговори Frontly, на македонски',
-    navPhone: 'Телефон',
     navSignIn: 'Најава',
     headline: ['Секој пропуштен повик', 'е изгубен термин.'],
     lede: 'Frontly се јавува кога вие не можете, разбира македонски и закажува во вашиот календар. Без говорна пошта и без пропуштени клиенти.',
-    cta: 'Јавете се и пробајте',
+    contactCta: 'Побарајте демо',
+    contactFine: 'Нов бизнис? Пишете ни и ве поставуваме ние.',
     exchangeLabel: 'Вистински повик',
     bandTitle: 'Ѕвони. Одговара. Закажува.',
     band: [
@@ -73,18 +70,16 @@ export const LANDING: Record<Lang, LandingCopy> = {
     signInBody:
       'Влезете во таблата за да ги видите повиците, термините и што кажал секој клиент.',
     signInCta: 'Најава',
-    newClinic: (phone) => `Нов бизнис? Јавете се на ${phone} и ве поставуваме ние.`,
     footer: 'Виртуелен рецепционер за мали бизниси во Северна Македонија.',
   },
 
   sq: {
     eyebrow: 'Klinika · Sallone · Autoservise',
-    dialNote: 'Telefononi tani — përgjigjet Frontly, në maqedonisht',
-    navPhone: 'Telefoni',
     navSignIn: 'Hyrje',
     headline: ['Çdo telefonatë e humbur', 'është një termin i humbur.'],
     lede: 'Frontly përgjigjet kur ju nuk mundeni, kupton shqip dhe rezervon në kalendarin tuaj. Pa postë zanore dhe pa klientë të humbur.',
-    cta: 'Telefononi dhe provojeni',
+    contactCta: 'Kërkoni një demo',
+    contactFine: 'Biznes i ri? Na shkruani dhe ju rregullojmë ne.',
     exchangeLabel: 'Telefonatë e vërtetë (maqedonisht)',
     bandTitle: 'Bie. Përgjigjet. Rezervon.',
     band: [
@@ -109,18 +104,16 @@ export const LANDING: Record<Lang, LandingCopy> = {
     signInBody:
       'Hyni në panel për të parë telefonatat, terminet dhe çfarë tha secili klient.',
     signInCta: 'Hyrje',
-    newClinic: (phone) => `Biznes i ri? Telefononi ${phone} dhe ju rregullojmë ne.`,
     footer: 'Recepsionist virtual për biznese të vogla në Maqedoninë e Veriut.',
   },
 
   en: {
     eyebrow: 'Clinics · Salons · Auto services',
-    dialNote: 'Call now — Frontly answers, in Macedonian',
-    navPhone: 'Phone',
     navSignIn: 'Sign in',
     headline: ['Every missed call', 'is a lost booking.'],
     lede: 'Frontly answers when you cannot, understands Macedonian and books into your calendar. No voicemail, no lost customers.',
-    cta: 'Call it and see',
+    contactCta: 'Request a demo',
+    contactFine: 'New business? Write to us and we will set you up.',
     exchangeLabel: 'A real call (in Macedonian)',
     bandTitle: 'Rings. Answers. Books.',
     band: [
@@ -140,7 +133,6 @@ export const LANDING: Record<Lang, LandingCopy> = {
     signInTitle: 'Already working with us?',
     signInBody: 'Sign in to see the calls, the appointments, and what every customer said.',
     signInCta: 'Sign in',
-    newClinic: (phone) => `New business? Call ${phone} and we will set you up.`,
     footer: 'A virtual receptionist for small businesses in North Macedonia.',
   },
 };

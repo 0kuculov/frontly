@@ -5,7 +5,7 @@
 <h1 align="center">Frontly</h1>
 
 <p align="center">
-  An AI receptionist that answers the phone in Macedonian, checks real availability, and books the appointment.
+  An AI receptionist that answers the phone in Macedonian, Albanian or English, checks real availability, and books the appointment.
 </p>
 
 <p align="center">
@@ -21,22 +21,15 @@
 
 ## Demo video
 
-<!--
-  Replace this block with the video.
 
-  YouTube / Vimeo — a thumbnail that links to the video (GitHub strips iframes,
-  so a linked image is the way an embed is done here):
 
-  <p align="center">
-    <a href="VIDEO_URL">
-      <img src="THUMBNAIL_URL" width="720" alt="Frontly — a booking taken by phone, in Macedonian">
-    </a>
-  </p>
 
-  Or an MP4 committed to the repo, which GitHub plays inline:
+https://github.com/user-attachments/assets/11aefcdd-2467-4b08-a0ed-2bbd199e4025
 
-  https://github.com/0kuculov/frontly/assets/…/demo.mp4
--->
+
+
+
+
 
 <p align="center">
   <strong>Demo video — coming</strong><br>
@@ -53,7 +46,7 @@ can reach it, and the caller does not leave a voicemail — they ring the next
 business on the list. The booking is lost before anyone knows it existed.
 
 Every general-purpose answering service solves this in English. None of them
-speak Macedonian well enough to take a booking over an 8 kHz phone line, and a
+speak Macedonian or Albanian well enough to take a booking over an 8 kHz phone line, and a
 receptionist who mishears a name or a phone number is worse than no receptionist
 at all.
 

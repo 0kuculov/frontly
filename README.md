@@ -22,8 +22,7 @@
 ## Demo video
 
 <p align="center">
-  <strong>Demo Video</strong><br>
-  <sub>A booking taken end to end by phone, in Macedonian, with the owner's dashboard alongside. After the call, client recieves SMS confirmation for their appointment and the owner's dashboard syncs the booked client.</sub>
+  <strong>A booking taken end to end by phone, in Macedonian, with the owner's dashboard alongside. After the call, client recieves SMS confirmation for their appointment and the owner's dashboard syncs the booked client.</strong>
 </p>
 
 

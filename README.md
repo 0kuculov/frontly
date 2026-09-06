@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-build%20%C2%B7%20typecheck%20%C2%B7%20tests-1c6ddd?style=flat-square"></a>
   <img alt="tests" src="https://img.shields.io/badge/tests-296%20passing-brightgreen?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat-square&logo=typescript&logoColor=white">
   <img alt="Node" src="https://img.shields.io/badge/Node-24.x-5fa04e?style=flat-square&logo=nodedotjs&logoColor=white">
@@ -452,19 +451,7 @@ packages/
 
 ## Notes on this README
 
-**A note on the CI badge.** This repository is private, so shields.io cannot
-read its workflow runs and a live status badge would render as an error for
-every reader. The badge above therefore states what CI *runs* — build,
-typecheck and the full suite, on every push, defined in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — rather than asserting a
-result it cannot prove. If the repository is made public, swap it for the live
-one:
-
-```html
-<a href="https://github.com/0kuculov/frontly/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/0kuculov/frontly/ci.yml?branch=main&label=build&style=flat-square"></a>
-```
-
-There is also no licence badge, because there is no `LICENSE` file yet. That is
+There no licence badge, because there is no `LICENSE` file yet. That is
 a decision with consequences — a permissive licence gives away a product being
 pitched — and it is not one to make by default.
 

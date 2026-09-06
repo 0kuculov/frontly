@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+<a href="https://github.com/0kuculov/frontly/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/0kuculov/frontly/ci.yml?branch=main&label=build&style=flat-square"></a>
   <img alt="tests" src="https://img.shields.io/badge/tests-296%20passing-brightgreen?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat-square&logo=typescript&logoColor=white">
   <img alt="Node" src="https://img.shields.io/badge/Node-24.x-5fa04e?style=flat-square&logo=nodedotjs&logoColor=white">

@@ -396,11 +396,7 @@ yet.
 
 **Known weak, honestly.**
 
-- **SMS does not reach Macedonian phones yet.** Proven with a real send: Telnyx
-  accepts the message and the destination carrier rejects it with error 40008.
-  The alphanumeric sender ID `FRONTLY` needs registering for +389 with the
-  carrier — a telecom paperwork step, not a build step. The US long code cannot
-  help; it reports `international_outbound: false`.
+
 - **Three concurrent callers, and it is not a code problem.** Azure refuses a
   fourth simultaneous transcription (`websocket error 4429`), reproducibly at
   exactly 3, because every call holds one recogniser open for its whole
